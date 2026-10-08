@@ -5,7 +5,10 @@ use clap::Parser;
 pub struct Options {
     #[arg(long, help = "Animate synthetic conversation without recording audio")]
     pub demo: bool,
-    #[arg(long, help = "List PipeWire microphone sources and output sinks")]
+    #[arg(
+        long,
+        help = "List PipeWire devices and application/media names for tab routing"
+    )]
     pub list_devices: bool,
     #[arg(
         long,
@@ -13,6 +16,17 @@ pub struct Options {
         help = "PipeWire output sink name or object.serial for host 1"
     )]
     pub browser: String,
+    #[arg(
+        long,
+        help = "Keep the browser tab with this exact PipeWire media.name routed to --browser"
+    )]
+    pub route_browser_tab: Option<String>,
+    #[arg(
+        long,
+        default_value = "Firefox",
+        help = "Exact PipeWire application.name used with --route-browser-tab"
+    )]
+    pub browser_application: String,
     #[arg(
         long,
         default_value = "auto",

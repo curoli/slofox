@@ -17,6 +17,7 @@ use clap::Parser;
 use slofox::{
     audio::{self, Capture, Envelope, Reader, SpeechPose},
     config::Options,
+    routing::{self, TabRouter},
 };
 use studio::{AnimatedPart, Host, PartKind, StudioCamera};
 
@@ -42,6 +43,7 @@ fn main() -> ExitCode {
     let options = Options::parse();
     let mut captures = Vec::new();
     let mut readers = Vec::new();
+    let mut router = None;
     if options.list_devices || !options.demo {
         if !cfg!(target_os = "linux") {
             eprintln!("Live audio currently uses Linux PipeWire. Use --demo on other platforms.");
@@ -63,6 +65,14 @@ fn main() -> ExitCode {
                     device.name,
                     device.description
                 );
+            }
+            match routing::graph().and_then(|graph| routing::streams(&graph)) {
+                Ok(streams) => {
+                    for stream in streams {
+                        println!("stream | {} | {}", stream.application, stream.title);
+                    }
+                }
+                Err(error) => eprintln!("{error}"),
             }
             return ExitCode::SUCCESS;
         }
@@ -88,6 +98,19 @@ fn main() -> ExitCode {
             };
             readers.push(Reader::new(capture.signal.clone(), delay));
             captures.push(capture);
+        }
+        if let Some(title) = &options.route_browser_tab {
+            router = match TabRouter::start(
+                options.browser_application.clone(),
+                title.clone(),
+                options.browser.clone(),
+            ) {
+                Ok(router) => Some(router),
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::FAILURE;
+                }
+            };
         }
     }
     let session = Session {
@@ -133,6 +156,7 @@ fn main() -> ExitCode {
                 .chain(),
         )
         .run();
+    drop(router);
     drop(captures);
     match exit {
         AppExit::Success => ExitCode::SUCCESS,

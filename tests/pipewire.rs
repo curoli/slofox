@@ -7,7 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use slofox::audio::{self, Capture, Reader, SAMPLE_RATE};
+use slofox::{
+    audio::{self, Capture, Reader, SAMPLE_RATE},
+    routing::{self, TabRouter},
+};
 
 struct Process(Child);
 
@@ -24,6 +27,29 @@ impl Drop for TemporaryAudio {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
     }
+}
+
+fn playback_stream(target: &str, application: &str, title: &str, file: &TemporaryAudio) -> Process {
+    Process(
+        Command::new("pw-play")
+            .args([
+                "--raw",
+                "--rate",
+                "48000",
+                "--channels",
+                "1",
+                "--format",
+                "f32",
+                "--target",
+                target,
+                "--properties",
+                &format!("{{ application.name = \"{application}\" media.name = \"{title}\" }}"),
+                "-",
+            ])
+            .stdin(Stdio::from(fs::File::open(&file.0).unwrap()))
+            .spawn()
+            .unwrap(),
+    )
 }
 
 fn isolated_sink(name: &str) -> Process {
@@ -173,4 +199,79 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         second_heard_tone,
         "source input never received the test tone"
     );
+}
+
+#[test]
+#[ignore = "requires a running PipeWire session and pipewire-bin; creates isolated test streams"]
+fn automatically_routes_recreated_tab_streams_without_moving_other_tabs() {
+    let sink_name = format!("slofox_routing_sink_{}", std::process::id());
+    let other_sink_name = format!("slofox_routing_other_{}", std::process::id());
+    let application = format!("SlofoxRoutingTest{}", std::process::id());
+    let _sink = isolated_sink(&sink_name);
+    let _other_sink = isolated_sink(&other_sink_name);
+    let started = Instant::now();
+    while audio::devices()
+        .unwrap()
+        .iter()
+        .filter(|device| device.name == sink_name || device.name == other_sink_name)
+        .count()
+        != 2
+    {
+        assert!(started.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(50));
+    }
+    let file = TemporaryAudio(
+        std::env::temp_dir().join(format!("slofox_routing_{}.f32", std::process::id())),
+    );
+    fs::write(&file.0, vec![0_u8; SAMPLE_RATE * 4 * 3]).unwrap();
+    let _router = TabRouter::start(
+        application.clone(),
+        "Selected tab".into(),
+        sink_name.clone(),
+    )
+    .unwrap();
+
+    for _ in 0..2 {
+        let selected = playback_stream(&other_sink_name, &application, "Selected tab", &file);
+        let other = playback_stream(&other_sink_name, &application, "Other tab", &file);
+        let started = Instant::now();
+        loop {
+            let graph = routing::graph().unwrap();
+            let streams = routing::streams(&graph).unwrap();
+            let both_present = ["Selected tab", "Other tab"].iter().all(|title| {
+                streams
+                    .iter()
+                    .any(|stream| stream.application == application && stream.title == *title)
+            });
+            if both_present
+                && routing::routing_plan(&graph, &application, "Selected tab", &sink_name)
+                    .unwrap()
+                    .is_empty()
+                && routing::routing_plan(&graph, &application, "Other tab", &other_sink_name)
+                    .unwrap()
+                    .is_empty()
+            {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "selected stream was not rerouted or unrelated stream moved"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+        drop(selected);
+        drop(other);
+        let stopped = Instant::now();
+        while routing::streams(&routing::graph().unwrap())
+            .unwrap()
+            .iter()
+            .any(|stream| stream.application == application)
+        {
+            assert!(
+                stopped.elapsed() < Duration::from_secs(2),
+                "old streams did not disappear"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
