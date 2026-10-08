@@ -12,7 +12,7 @@ OBS records the app window and the two audio channels.
   portraits: long black hair and an orange/navy top for host 1; shoulder-length
   brown hair with lighter strands and a patterned shirt for host 2.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
-  noise threshold and smooth transitions. Local formant analysis approximates
+  noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
 - A shared desk, studio lighting, microphones and three smoothly changing
@@ -189,18 +189,30 @@ cargo run --locked -- --demo
 ```
 
 Audio is low-pass filtered and downsampled from 48 to 12 kHz. Every 10 ms,
-Burg LPC estimates the first two resonances (F1/F2) from a 32 ms Hamming window.
+the analyzer uses a 32 ms Hamming window. For voiced, harmonically rich audio,
+a small FFT compares power in three bands: 150–600 Hz, 600–1400 Hz and
+1800–3200 Hz. Relative middle-band energy drives an open shape, relative high-band
+energy a wide shape, and a low-frequency-dominated spectrum a rounded shape.
+Power ratios rather than absolute level determine colour, so quiet O/U does
+not need to produce two separately resolved LPC poles. These broad heuristics
+are approximate mouth cues, not measured or recognized individual vowels.
+
+Burg LPC also estimates the first two resonances (F1/F2).
 Resonances are extracted from the LPC poles, including close O/U formants that
 can merge into a single spectral peak. Periodicity, bandwidth and spectral
 strength checks reject uncertain frames; an estimate can be held for at most
 50 ms to bridge brief gaps.
-F1 influences jaw opening and F2 influences lip width/rounding. Loudness still
+When spectral evidence is unavailable, F1 influences jaw opening and F2 lip
+width/rounding; if both analyses are uncertain, volume alone drives the jaw.
+Loudness still
 controls movement strength and closes the mouth below `--threshold`. Both lips,
 the mouth cavity and teeth move together with frame-rate-independent smoothing.
-Audio delays apply to volume and formants together.
+Audio delays apply to volume, spectral shape and formants together.
 
-The overlay shows approximate vowel groups and raw F1/F2 frequencies, or
-`volume fallback` when resonances cannot be estimated. These are approximate
+The overlay shows the mouth-driving approximate vowel group with `(spectrum)`
+when FFT colour is used. Otherwise it shows the LPC group and F1/F2 frequencies,
+or `volume fallback`. The diagnostic log reports both spectral and LPC results;
+they may disagree, and the spectral shape then drives animation. These are approximate
 visual cues, not recognized letters. Whispering, high-pitched voices, background
 music, consonants and noise can give uncertain or incorrect estimates. This
 version does not detect B/P/M lip closures or distinguish individual phonemes.
@@ -212,8 +224,9 @@ its formant normalization scale (default 1.0; supported range 0.7–1.5):
 cargo run --locked -- --browser-formant-scale 1.15 --microphone-formant-scale 1.0
 ```
 
-The scales divide measured F1/F2 before mapping; they do not alter pitch, sound
-or the displayed raw frequencies. Tune with sustained A, E/I and O/U sounds.
+The scales normalize spectral band frequencies and divide measured F1/F2 before
+mapping; they do not alter pitch, sound or raw diagnostic frequencies.
+Tune with sustained A, E/I and O/U sounds.
 The previous animation remains available with `--mouth-mode volume`.
 
 If O/U is consistently classified as E/I, add `--audio-diagnostics` to your
@@ -233,8 +246,9 @@ with 500–900 Hz bandwidth are admitted only if their relative power is at leas
 2%; otherwise the usual 30–500 Hz bandwidth criterion applies. The selected
 F2 must have at least 1% relative power. This preserves strong broad O/U
 resonances while avoiding confident E/I labels from very weak high resonances.
-If F2 is genuinely missing or too weak, the animation falls back to volume;
-these checks cannot reconstruct it. Diagnostics help distinguish that case
+If F2 is genuinely missing or too weak, the LPC result is rejected; spectral
+colour can still animate the mouth without claiming a measured F2.
+These checks cannot reconstruct it. Diagnostics help distinguish that case
 from an incorrect mouth mapping. Gain controls
 mouth strength, not the measured formant frequencies.
 
@@ -245,6 +259,28 @@ For background on Burg LPC and formant extraction, see the
 [Praat documentation](https://fon.hum.uva.nl/praat/manual/Sound__To_Formant__burg____.html).
 
 ## Development
+
+To inspect a recording locally without playing it, an optional `ffmpeg`
+conversion can feed the offline analysis example:
+
+```sh
+ffmpeg -v error -i /path/to/vowels.wav -ac 1 -ar 48000 -f f32le /tmp/vowels.f32
+cargo run --locked --example analyze_audio -- /tmp/vowels.f32
+```
+
+`tests/private_vowels.rs` is an opt-in regression for the private 25-second
+A/I/O/U/loud-O reference. It uses stable intervals 0.5–3.5, 5.5–8.5,
+10.5–13.5, 16–18.5 and 20.5–23 seconds and checks both classification and
+animated mouth coefficients at original and half amplitude:
+
+```sh
+SLOFOX_VOWELS_F32=/tmp/vowels.f32 cargo test --locked --test private_vowels -- --ignored --nocapture
+```
+
+The reference recording is deliberately not distributed or committed. Ordinary
+tests do not open audio files; synthetic spectral, normalization, silence and
+delay tests remain self-contained. Passing one voice reference does not establish
+accuracy for other voices or ordinary conversational phonemes.
 
 ```sh
 cargo fmt --check

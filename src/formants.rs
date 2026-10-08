@@ -5,6 +5,96 @@ const WINDOW: usize = 384;
 const ORDER: usize = 12;
 const BINS: usize = 71;
 const TAPS: usize = 31;
+const FFT_SIZE: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpectralShape {
+    pub openness: f32,
+    pub round: f32,
+    pub wide: f32,
+}
+
+impl SpectralShape {
+    pub fn label(self) -> &'static str {
+        if self.openness > 0.6 {
+            "A-like"
+        } else if self.round > 0.3 {
+            "O/U-like"
+        } else if self.wide > 0.3 {
+            "E/I-like"
+        } else {
+            "neutral"
+        }
+    }
+}
+
+fn spectral_shape(frame: &[f64; WINDOW], scale: f64) -> Option<SpectralShape> {
+    let mut spectrum = [Complex {
+        real: 0.0,
+        imaginary: 0.0,
+    }; FFT_SIZE];
+    for (index, sample) in frame.iter().enumerate() {
+        spectrum[index].real = *sample;
+    }
+    for index in 0..FFT_SIZE {
+        let reverse = index.reverse_bits() >> (usize::BITS - FFT_SIZE.ilog2());
+        if reverse > index {
+            spectrum.swap(index, reverse);
+        }
+    }
+    let mut width = 2;
+    while width <= FFT_SIZE {
+        for start in (0..FFT_SIZE).step_by(width) {
+            for offset in 0..width / 2 {
+                let angle = -2.0 * PI * offset as f64 / width as f64;
+                let odd = spectrum[start + offset + width / 2].multiply(Complex {
+                    real: angle.cos(),
+                    imaginary: angle.sin(),
+                });
+                let even = spectrum[start + offset];
+                spectrum[start + offset] = Complex {
+                    real: even.real + odd.real,
+                    imaginary: even.imaginary + odd.imaginary,
+                };
+                spectrum[start + offset + width / 2] = even.subtract(odd);
+            }
+        }
+        width *= 2;
+    }
+    let power: [f64; FFT_SIZE / 2 + 1] =
+        std::array::from_fn(|index| spectrum[index].norm().powi(2));
+    let peak = (4..=136).max_by(|&left, &right| power[left].total_cmp(&power[right]))?;
+    let total: f64 = (4..=136).map(|index| power[index]).sum();
+    let outside: f64 = (4_usize..=136)
+        .filter(|&index| index.abs_diff(peak) > 3)
+        .map(|index| power[index])
+        .sum();
+    if total < 1e-12 || outside / total < 0.05 {
+        return None;
+    }
+    let band = |lower: f64, upper: f64| -> f64 {
+        power
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                let frequency = *index as f64 * RATE / FFT_SIZE as f64 / scale;
+                frequency >= lower && frequency < upper
+            })
+            .map(|(_, value)| value)
+            .sum::<f64>()
+    };
+    let low = band(150.0, 600.0).max(1e-12);
+    let middle = band(600.0, 1400.0);
+    let high = band(1800.0, 3200.0);
+    let openness = ((middle / low).max(1e-12).log2() * 0.5 + 0.5).clamp(0.0, 1.0) as f32;
+    let wide =
+        (((high / low).max(1e-12).log2() * 0.5 + 1.0).clamp(0.0, 1.0) as f32) * (1.0 - openness);
+    Some(SpectralShape {
+        openness,
+        wide,
+        round: (1.0 - openness) * (1.0 - wide),
+    })
+}
 
 #[derive(Clone, Copy)]
 struct Complex {
@@ -169,6 +259,9 @@ pub struct Analyzer {
     missing_samples: usize,
     candidates: Vec<Candidate>,
     reason: &'static str,
+    spectral: Option<SpectralShape>,
+    previous_sample: f64,
+    frequency_scale: f64,
 }
 
 impl Default for Analyzer {
@@ -212,11 +305,27 @@ impl Default for Analyzer {
             missing_samples: 0,
             candidates: Vec::new(),
             reason: "waiting for audio",
+            spectral: None,
+            previous_sample: 0.0,
+            frequency_scale: 1.0,
         }
     }
 }
 
 impl Analyzer {
+    pub fn with_formant_scale(scale: f32) -> Self {
+        Self {
+            frequency_scale: if scale.is_finite() && scale > 0.0 {
+                scale as f64
+            } else {
+                1.0
+            },
+            ..Default::default()
+        }
+    }
+    pub fn spectral(&self) -> Option<SpectralShape> {
+        self.spectral
+    }
     pub fn diagnostics(&self) -> String {
         let candidates = self
             .candidates
@@ -230,8 +339,10 @@ impl Analyzer {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "{}; poles [{}] (frequency/bandwidth/relative power)",
-            self.reason, candidates
+            "{}; spectrum {}; poles [{}] (frequency/bandwidth/relative power)",
+            self.reason,
+            self.spectral.map_or("uncertain", SpectralShape::label),
+            candidates
         )
     }
 
@@ -251,6 +362,7 @@ impl Analyzer {
 
     fn estimate(&mut self, samples: &[f32]) -> Option<Formants> {
         self.candidates.clear();
+        self.spectral = None;
         self.reason = "warming up";
         for sample in samples {
             self.input[self.input_cursor] = if sample.is_finite() {
@@ -270,6 +382,7 @@ impl Analyzer {
                         coefficient * self.input[(self.input_cursor + TAPS - 1 - index) % TAPS]
                     })
                     .sum();
+                self.previous_sample = self.history[self.cursor];
                 self.history[self.cursor] = filtered;
                 self.cursor = (self.cursor + 1) % WINDOW;
                 self.count = (self.count + 1).min(WINDOW);
@@ -309,7 +422,8 @@ impl Analyzer {
         for index in (1..WINDOW).rev() {
             frame[index] = (frame[index] - 0.97 * frame[index - 1]) * self.window[index];
         }
-        frame[0] *= self.window[0];
+        frame[0] = (frame[0] - 0.97 * (self.previous_sample - mean)) * self.window[0];
+        self.spectral = spectral_shape(&frame, self.frequency_scale);
         let mut coefficients = [0.0; ORDER + 1];
         self.reason = "unstable LPC";
         coefficients[0] = 1.0;
@@ -376,6 +490,56 @@ impl Analyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spectral_shapes_are_bounded_distinct_and_level_independent() {
+        for (amplitudes, label) in [
+            ([0.3, 1.0, 0.1], "A-like"),
+            ([0.3, 0.1, 1.0], "E/I-like"),
+            ([1.0, 0.3, 0.2], "O/U-like"),
+        ] {
+            let mut reference = None;
+            for amplitude in [1.0, 0.1] {
+                let frame = std::array::from_fn(|index| {
+                    [300.0, 1000.0, 2500.0]
+                        .into_iter()
+                        .zip(amplitudes)
+                        .map(|(frequency, strength)| {
+                            strength * (2.0 * PI * frequency * index as f64 / RATE).sin()
+                        })
+                        .sum::<f64>()
+                        * amplitude
+                        * (0.54 - 0.46 * (2.0 * PI * index as f64 / (WINDOW - 1) as f64).cos())
+                });
+                let shape = spectral_shape(&frame, 1.0).unwrap();
+                assert_eq!(shape.label(), label);
+                assert!(
+                    [shape.openness, shape.round, shape.wide]
+                        .into_iter()
+                        .all(|coefficient| (0.0..=1.0).contains(&coefficient))
+                );
+                if let Some(previous) = reference {
+                    let previous: SpectralShape = previous;
+                    assert!((previous.openness - shape.openness).abs() < 0.0001);
+                    assert!((previous.round - shape.round).abs() < 0.0001);
+                    assert!((previous.wide - shape.wide).abs() < 0.0001);
+                }
+                reference = Some(shape);
+            }
+        }
+    }
+
+    #[test]
+    fn spectral_bands_follow_per_voice_frequency_normalization() {
+        let frame = std::array::from_fn(|index| {
+            ((2.0 * PI * 600.0 * index as f64 / RATE).sin()
+                + 0.5 * (2.0 * PI * 900.0 * index as f64 / RATE).sin())
+                * (0.54 - 0.46 * (2.0 * PI * index as f64 / (WINDOW - 1) as f64).cos())
+        });
+        let default = spectral_shape(&frame, 1.0).unwrap();
+        let shifted = spectral_shape(&frame, 1.5).unwrap();
+        assert!(default.openness > shifted.openness + 0.1);
+    }
 
     #[test]
     fn strong_broad_second_formant_from_microphone_log_is_preserved() {
@@ -494,7 +658,7 @@ mod tests {
         assert!(
             Analyzer::default()
                 .diagnostics()
-                .contains("waiting for audio; poles []")
+                .contains("waiting for audio; spectrum uncertain; poles []")
         );
     }
 
@@ -674,6 +838,11 @@ mod tests {
                 });
                 assert_eq!(
                     analyzer.analyze(&samples),
+                    None,
+                    "kind {kind}, block {block_index}"
+                );
+                assert_eq!(
+                    analyzer.spectral(),
                     None,
                     "kind {kind}, block {block_index}"
                 );

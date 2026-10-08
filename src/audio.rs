@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::formants::{Analyzer, Formants};
+use crate::formants::{Analyzer, Formants, SpectralShape};
 
 pub const SAMPLE_RATE: usize = 48_000;
 const BLOCK_SAMPLES: usize = 480;
@@ -17,6 +17,7 @@ const MAX_PACKETS: usize = 256;
 pub struct Features {
     pub rms: f32,
     pub formants: Option<Formants>,
+    pub spectral: Option<SpectralShape>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +144,7 @@ impl Envelope {
             Features {
                 rms,
                 formants: None,
+                spectral: None,
             },
             gain,
             threshold,
@@ -166,9 +168,14 @@ impl Envelope {
             0.0
         };
         let (open, round, wide) = if target > 0.0 {
-            features
-                .formants
-                .map_or((1.0, 0.0, 0.0), |formants| formants.shape(scale))
+            features.spectral.map_or_else(
+                || {
+                    features
+                        .formants
+                        .map_or((1.0, 0.0, 0.0), |formants| formants.shape(scale))
+                },
+                |spectral| (spectral.openness, spectral.round, spectral.wide),
+            )
         } else {
             (1.0, 0.0, 0.0)
         };
@@ -212,6 +219,7 @@ impl Signal {
             Features {
                 rms,
                 formants: None,
+                spectral: None,
             },
             time,
         );
@@ -299,6 +307,16 @@ impl Capture {
         label: &str,
         diagnostics: bool,
     ) -> Result<Self, String> {
+        Self::start_with_analysis(target, sink, label, diagnostics, 1.0)
+    }
+
+    pub fn start_with_analysis(
+        target: &str,
+        sink: bool,
+        label: &str,
+        diagnostics: bool,
+        formant_scale: f32,
+    ) -> Result<Self, String> {
         let mut child = Command::new("pw-record")
             .args([
                 "--raw",
@@ -331,7 +349,7 @@ impl Capture {
             .spawn(move || {
                 let mut bytes = [0_u8; BLOCK_SAMPLES * 4];
                 let mut samples = [0_f32; BLOCK_SAMPLES];
-                let mut analyzer = Analyzer::default();
+                let mut analyzer = Analyzer::with_formant_scale(formant_scale);
                 let mut last_diagnostic = Instant::now();
                 loop {
                     if let Err(error) = output.read_exact(&mut bytes) {
@@ -358,6 +376,7 @@ impl Capture {
                         Features {
                             rms: level,
                             formants,
+                            spectral: analyzer.spectral(),
                         },
                         Instant::now(),
                     );
@@ -474,6 +493,11 @@ mod tests {
                 first: 350.0,
                 second: 850.0,
             }),
+            spectral: Some(SpectralShape {
+                openness: 0.0,
+                round: 1.0,
+                wide: 0.0,
+            }),
         };
         let second = Features {
             rms: 0.1,
@@ -481,6 +505,7 @@ mod tests {
                 first: 300.0,
                 second: 2400.0,
             }),
+            spectral: None,
         };
         signal.push_features(first, now);
         signal.push_features(second, now + Duration::from_millis(10));
@@ -496,6 +521,36 @@ mod tests {
     }
 
     #[test]
+    fn spectral_evidence_overrides_a_conflicting_lpc_model_but_respects_silence() {
+        let features = Features {
+            rms: 0.03,
+            formants: Some(Formants {
+                first: 432.0,
+                second: 3038.0,
+            }),
+            spectral: Some(SpectralShape {
+                openness: 0.0,
+                round: 1.0,
+                wide: 0.0,
+            }),
+        };
+        let mut envelope = Envelope::default();
+        let pose = envelope.update_features(features, 8.0, 0.008, 1.0, 1.0);
+        assert!(pose.lip_round > 0.3 && pose.lip_wide == 0.0);
+        let silence = envelope.update_features(
+            Features {
+                rms: 0.0,
+                ..features
+            },
+            8.0,
+            0.008,
+            2.0,
+            1.0,
+        );
+        assert!(silence.jaw_open < 0.001 && silence.lip_round < 0.001);
+    }
+
+    #[test]
     fn shapes_transition_smoothly_and_release_at_silence() {
         let mut envelope = Envelope::default();
         let round = Features {
@@ -504,6 +559,7 @@ mod tests {
                 first: 350.0,
                 second: 850.0,
             }),
+            spectral: None,
         };
         let wide = Features {
             rms: 0.1,
@@ -511,6 +567,7 @@ mod tests {
                 first: 300.0,
                 second: 2400.0,
             }),
+            spectral: None,
         };
         let previous = envelope.update_features(round, 8.0, 0.008, 1.0, 1.0);
         assert!(previous.lip_round > 0.6 && previous.lip_wide == 0.0);
@@ -533,6 +590,7 @@ mod tests {
                 first: 350.0,
                 second: 850.0,
             }),
+            spectral: None,
         };
         let mut poses = Vec::new();
         for fps in [30, 120] {

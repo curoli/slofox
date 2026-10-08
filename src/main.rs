@@ -90,11 +90,16 @@ fn main() -> ExitCode {
                 eprintln!("{error}");
                 return ExitCode::FAILURE;
             }
-            let capture = match Capture::start_with_diagnostics(
+            let capture = match Capture::start_with_analysis(
                 target,
                 sink,
                 label,
                 options.audio_diagnostics,
+                if sink {
+                    options.browser_formant_scale
+                } else {
+                    options.microphone_formant_scale
+                },
             ) {
                 Ok(capture) => capture,
                 Err(error) => {
@@ -237,6 +242,7 @@ fn update_audio(time: Res<Time>, mut session: ResMut<Session>) {
             Features {
                 rms: audio::demo_level(elapsed, index),
                 formants: Some(Formants { first, second }),
+                spectral: None,
             }
         } else {
             session.statuses[index] = session.readers[index].signal.status(now);
@@ -254,8 +260,9 @@ fn update_audio(time: Res<Time>, mut session: ResMut<Session>) {
         };
         if session.options.mouth_mode == MouthMode::Volume {
             features.formants = None;
+            features.spectral = None;
         } else if features.rms > session.options.threshold {
-            let description = features.formants.map_or_else(
+            let model = features.formants.map_or_else(
                 || "volume fallback".to_owned(),
                 |formants| {
                     format!(
@@ -266,6 +273,9 @@ fn update_audio(time: Res<Time>, mut session: ResMut<Session>) {
                     )
                 },
             );
+            let description = features
+                .spectral
+                .map_or(model, |spectral| format!("{} (spectrum)", spectral.label()));
             session.statuses[index].push_str(&format!(" / {description}"));
         }
         let threshold = session.options.threshold;

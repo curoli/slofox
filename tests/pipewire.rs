@@ -176,6 +176,7 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     let mut peak_rms = 0.0_f32;
     let mut second_has_packets = false;
     let mut first_vowels = [false; 2];
+    let mut first_spectral_vowels = [false; 2];
     while started.elapsed() < Duration::from_secs(3) {
         let now = Instant::now();
         let features = first_reader.features(now);
@@ -183,6 +184,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         if let Some(formants) = features.formants {
             first_vowels[0] |= formants.label(1.0) == "A-like";
             first_vowels[1] |= formants.label(1.0) == "O/U-like";
+        }
+        if let Some(spectral) = features.spectral {
+            first_spectral_vowels[0] |= spectral.label() == "A-like";
+            first_spectral_vowels[1] |= spectral.label() == "O/U-like";
         }
         peak_rms = peak_rms.max(level);
         heard_tone |= level > 0.05;
@@ -200,6 +205,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         first_reader.signal.status(Instant::now())
     );
     assert!(second_has_packets, "second input never connected");
+    assert!(
+        first_spectral_vowels.into_iter().all(|heard| heard),
+        "browser input missed spectral shapes"
+    );
     assert!(
         first_vowels.into_iter().all(|heard| heard),
         "browser input missed vowel features"
@@ -226,6 +235,7 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     let started = Instant::now();
     let mut second_heard_tone = false;
     let mut second_vowels = [false; 2];
+    let mut second_spectral_vowels = [false; 2];
     while started.elapsed() < Duration::from_secs(3) {
         let now = Instant::now();
         let features = second_reader.features(now);
@@ -234,6 +244,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
             second_vowels[0] |= formants.label(1.0) == "A-like";
             second_vowels[1] |= formants.label(1.0) == "O/U-like";
         }
+        if let Some(spectral) = features.spectral {
+            second_spectral_vowels[0] |= spectral.label() == "A-like";
+            second_spectral_vowels[1] |= spectral.label() == "O/U-like";
+        }
         assert!(
             first_reader.features(now) == Default::default(),
             "second tone leaked into the first input"
@@ -241,6 +255,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         thread::sleep(Duration::from_millis(20));
     }
     assert!(second_playback.0.wait().unwrap().success());
+    assert!(
+        second_spectral_vowels.into_iter().all(|heard| heard),
+        "microphone source missed spectral shapes"
+    );
     assert!(
         second_heard_tone,
         "source input never received the test tone"
