@@ -24,6 +24,7 @@ pub enum PartKind {
     Arm(f32),
     Eye,
     Mouth,
+    UpperLip,
     LowerLip,
     Teeth,
 }
@@ -373,14 +374,16 @@ fn host(
         mouth_rest,
     );
     animated(commands, mouth, index, PartKind::Mouth, mouth_rest);
-    ellipsoid(
+    let upper_rest =
+        Transform::from_xyz(0.0, 0.155, 0.167).with_scale(Vec3::new(0.061, 0.008, 0.008));
+    let upper_lip = object(
         commands,
-        geometry,
-        head,
+        Some(head),
+        &geometry.sphere,
         &palette.lips,
-        Vec3::new(0.0, 0.155, 0.167),
-        Vec3::new(0.061, 0.008, 0.008),
+        upper_rest,
     );
+    animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
     let lip_rest = Transform::from_xyz(0.0, 0.139, 0.17).with_scale(Vec3::new(0.058, 0.007, 0.008));
     let lower_lip = object(
         commands,
