@@ -150,6 +150,33 @@ Slofox outputs video through its window. OBS captures the original audio
 directly, so Slofox does not replay or mix the microphone. End-to-end OBS
 synchronization must be checked on the recording machine.
 
+## Browser avatar stays silent
+
+Firefox/Chrome may create a new audio stream when a voice session restarts.
+Moving the previous stream in `pavucontrol` does not guarantee that the new
+stream follows it. If ChatGPT is audible but its Slofox RMS stays at zero,
+check the active browser stream's destination again while ChatGPT is speaking.
+
+For automatic routing of one selected tab, first start the browser-audio script
+and ChatGPT's voice output, then run `slofox --list-devices`. The `stream` lines
+show the exact application name and media title. Start Slofox with that title:
+
+```sh
+cargo run --locked -- --route-browser-tab "Your ChatGPT conversation title"
+```
+
+The default application is `Firefox`. For Chrome, add `--browser-application`
+with its exact application name from the list. While Slofox runs, it checks
+once per second and moves matching streams to `--browser`, including newly
+created streams. Other tab titles and other applications are left alone. This
+is opt-in; ordinary startup does not change any browser routing. If multiple
+tabs share the same media title and application, they all match. If the title
+changes, restart with the new title. Routing changes use WirePlumber's
+`target.object` metadata; `pw-metadata` is included in `pipewire-bin`.
+
+Start the browser-audio script before Slofox and keep it running. If the script
+is restarted, restart Slofox too so its capture reconnects to the recreated sink.
+
 ## Development
 
 ```sh
