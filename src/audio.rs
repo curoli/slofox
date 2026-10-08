@@ -290,6 +290,15 @@ pub struct Capture {
 
 impl Capture {
     pub fn start(target: &str, sink: bool, label: &str) -> Result<Self, String> {
+        Self::start_with_diagnostics(target, sink, label, false)
+    }
+
+    pub fn start_with_diagnostics(
+        target: &str,
+        sink: bool,
+        label: &str,
+        diagnostics: bool,
+    ) -> Result<Self, String> {
         let mut child = Command::new("pw-record")
             .args([
                 "--raw",
@@ -316,12 +325,14 @@ impl Capture {
         let mut output = child.stdout.take().unwrap();
         let signal = Signal::default();
         let worker_signal = signal.clone();
+        let diagnostic_label = label.to_owned();
         let worker = match thread::Builder::new()
             .name(format!("audio-{label}"))
             .spawn(move || {
                 let mut bytes = [0_u8; BLOCK_SAMPLES * 4];
                 let mut samples = [0_f32; BLOCK_SAMPLES];
                 let mut analyzer = Analyzer::default();
+                let mut last_diagnostic = Instant::now();
                 loop {
                     if let Err(error) = output.read_exact(&mut bytes) {
                         worker_signal.fail(if error.kind() == io::ErrorKind::UnexpectedEof {
@@ -335,9 +346,17 @@ impl Capture {
                         *sample = f32::from_ne_bytes(*chunk);
                     }
                     let formants = analyzer.analyze(&samples);
+                    let level = rms(&samples);
+                    if diagnostics && last_diagnostic.elapsed() >= Duration::from_secs(1) {
+                        eprintln!(
+                            "Slofox {diagnostic_label}: RMS {level:.4}; {}",
+                            analyzer.diagnostics()
+                        );
+                        last_diagnostic = Instant::now();
+                    }
                     worker_signal.push_features(
                         Features {
-                            rms: rms(&samples),
+                            rms: level,
                             formants,
                         },
                         Instant::now(),

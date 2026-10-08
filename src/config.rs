@@ -66,6 +66,11 @@ pub struct Options {
     pub auto_camera: bool,
     #[arg(long, help = "Start with the diagnostic overlay hidden")]
     pub clean: bool,
+    #[arg(
+        long,
+        help = "Print per-input resonance candidates once per second; no audio is saved"
+    )]
+    pub audio_diagnostics: bool,
     #[arg(long, value_parser = positive_float, help = "Exit after this many seconds (useful for a demo smoke test)")]
     pub seconds: Option<f32>,
     #[arg(long, help = "Save a PNG of the app window after five seconds")]
@@ -126,6 +131,12 @@ mod tests {
         let defaults = Options::try_parse_from(["slofox"]).unwrap();
         assert_eq!(defaults.mouth_mode, MouthMode::Formants);
         assert_eq!(defaults.browser_formant_scale, 1.0);
+        assert!(!defaults.audio_diagnostics);
+        assert!(
+            Options::try_parse_from(["slofox", "--audio-diagnostics"])
+                .unwrap()
+                .audio_diagnostics
+        );
         let volume = Options::try_parse_from([
             "slofox",
             "--mouth-mode",

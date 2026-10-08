@@ -90,7 +90,12 @@ fn main() -> ExitCode {
                 eprintln!("{error}");
                 return ExitCode::FAILURE;
             }
-            let capture = match Capture::start(target, sink, label) {
+            let capture = match Capture::start_with_diagnostics(
+                target,
+                sink,
+                label,
+                options.audio_diagnostics,
+            ) {
                 Ok(capture) => capture,
                 Err(error) => {
                     eprintln!("{error}");

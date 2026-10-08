@@ -87,7 +87,7 @@ fn resonances(coefficients: &[f64; ORDER + 1]) -> Option<Vec<(f64, f64)>> {
                     )
                 })
                 .filter(|&(frequency, bandwidth)| {
-                    (150.0..=3200.0).contains(&frequency) && (30.0..=500.0).contains(&bandwidth)
+                    (150.0..=3200.0).contains(&frequency) && (0.0..=1500.0).contains(&bandwidth)
                 })
                 .collect();
             resonances.sort_by(|left, right| left.0.total_cmp(&right.0));
@@ -101,6 +101,33 @@ fn resonances(coefficients: &[f64; ORDER + 1]) -> Option<Vec<(f64, f64)>> {
 pub struct Formants {
     pub first: f32,
     pub second: f32,
+}
+
+#[derive(Clone, Copy)]
+struct Candidate {
+    frequency: f64,
+    bandwidth: f64,
+    strength: f64,
+}
+
+fn select_formants(candidates: &[Candidate]) -> Option<Formants> {
+    let mut eligible = candidates
+        .iter()
+        .filter(|candidate| (30.0..=500.0).contains(&candidate.bandwidth));
+    let first = eligible.next()?;
+    let second = eligible.find(|candidate| candidate.frequency >= first.frequency + 100.0)?;
+    if first.frequency > 1100.0
+        || [first, second]
+            .iter()
+            .any(|candidate| candidate.strength <= 0.002)
+        || (first.frequency > 500.0 && second.frequency - first.frequency > 2000.0)
+    {
+        return None;
+    }
+    Some(Formants {
+        first: first.frequency as f32,
+        second: second.frequency as f32,
+    })
 }
 
 impl Formants {
@@ -140,6 +167,8 @@ pub struct Analyzer {
     sine: [[f64; ORDER + 1]; BINS],
     last_formants: Option<Formants>,
     missing_samples: usize,
+    candidates: Vec<Candidate>,
+    reason: &'static str,
 }
 
 impl Default for Analyzer {
@@ -181,11 +210,31 @@ impl Default for Analyzer {
             }),
             last_formants: None,
             missing_samples: 0,
+            candidates: Vec::new(),
+            reason: "waiting for audio",
         }
     }
 }
 
 impl Analyzer {
+    pub fn diagnostics(&self) -> String {
+        let candidates = self
+            .candidates
+            .iter()
+            .map(|candidate| {
+                format!(
+                    "{:.0}Hz/BW{:.0}Hz/{:.4}",
+                    candidate.frequency, candidate.bandwidth, candidate.strength
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{}; poles [{}] (frequency/bandwidth/relative power)",
+            self.reason, candidates
+        )
+    }
+
     pub fn analyze(&mut self, samples: &[f32]) -> Option<Formants> {
         let estimate = self.estimate(samples);
         if let Some(formants) = estimate {
@@ -201,6 +250,8 @@ impl Analyzer {
     }
 
     fn estimate(&mut self, samples: &[f32]) -> Option<Formants> {
+        self.candidates.clear();
+        self.reason = "warming up";
         for sample in samples {
             self.input[self.input_cursor] = if sample.is_finite() {
                 *sample as f64
@@ -235,6 +286,7 @@ impl Analyzer {
         }
         let energy = frame.iter().map(|sample| sample * sample).sum::<f64>();
         if energy < 1e-8 {
+            self.reason = "silent";
             return None;
         }
         let periodicity = (24..=150)
@@ -251,6 +303,7 @@ impl Analyzer {
             })
             .fold(0.0_f64, f64::max);
         if periodicity < 0.45 {
+            self.reason = "unvoiced";
             return None;
         }
         for index in (1..WINDOW).rev() {
@@ -258,6 +311,7 @@ impl Analyzer {
         }
         frame[0] *= self.window[0];
         let mut coefficients = [0.0; ORDER + 1];
+        self.reason = "unstable LPC";
         coefficients[0] = 1.0;
         let mut forward = frame;
         let mut backward = frame;
@@ -298,28 +352,83 @@ impl Analyzer {
             1.0 / (real * real + imaginary * imaginary).max(1e-12)
         });
         let maximum = spectrum[3..=60].iter().copied().fold(0.0_f64, f64::max);
+        self.reason = "root solver did not converge";
         let resonances = resonances(&coefficients)?;
-        let mut candidates = resonances.iter().filter(|&&(frequency, _)| {
-            let bin = (frequency / 50.0).round() as usize;
-            spectrum[bin] > maximum * 0.002
-        });
-        let first = candidates.find(|&&(frequency, _)| frequency <= 1100.0)?.0;
-        let second = candidates
-            .find(|&&(frequency, _)| frequency >= first + 100.0)?
-            .0;
-        if first > 500.0 && second - first > 2000.0 {
-            return None;
-        }
-        Some(Formants {
-            first: first as f32,
-            second: second as f32,
-        })
+        self.candidates
+            .extend(resonances.into_iter().map(|(frequency, bandwidth)| {
+                let bin = (frequency / 50.0).round() as usize;
+                Candidate {
+                    frequency,
+                    bandwidth,
+                    strength: spectrum[bin] / maximum.max(1e-12),
+                }
+            }));
+        let formants = select_formants(&self.candidates);
+        self.reason = if formants.is_some() {
+            "accepted F1/F2"
+        } else {
+            "uncertain F1/F2: volume fallback after hold"
+        };
+        formants
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weak_second_formant_is_not_replaced_by_a_strong_third() {
+        let mut candidates = [
+            Candidate {
+                frequency: 432.0,
+                bandwidth: 100.0,
+                strength: 1.0,
+            },
+            Candidate {
+                frequency: 850.0,
+                bandwidth: 150.0,
+                strength: 0.001,
+            },
+            Candidate {
+                frequency: 3038.0,
+                bandwidth: 100.0,
+                strength: 0.1,
+            },
+        ];
+        assert_eq!(select_formants(&candidates), None);
+        candidates[1].strength = 0.01;
+        assert_eq!(
+            select_formants(&candidates),
+            Some(Formants {
+                first: 432.0,
+                second: 850.0
+            })
+        );
+        candidates[0].strength = 0.001;
+        assert_eq!(select_formants(&candidates), None);
+    }
+
+    #[test]
+    fn diagnostics_include_rejected_poles_without_audio_samples() {
+        let analyzer = Analyzer {
+            candidates: vec![Candidate {
+                frequency: 850.0,
+                bandwidth: 650.0,
+                strength: 0.001,
+            }],
+            reason: "uncertain F1/F2: volume fallback after hold",
+            ..Default::default()
+        };
+        let description = analyzer.diagnostics();
+        assert!(description.contains("volume fallback"));
+        assert!(description.contains("850Hz/BW650Hz/0.0010"));
+        assert!(
+            Analyzer::default()
+                .diagnostics()
+                .contains("waiting for audio; poles []")
+        );
+    }
 
     fn vowel(first: f64, second: f64, pitch: f64) -> Vec<f32> {
         let mut samples: Vec<f64> = (0..24_000)
@@ -370,8 +479,9 @@ mod tests {
                     }
                     assert!(
                         estimates.len() > 30,
-                        "{first}/{second} pitch {pitch}: {} estimates",
-                        estimates.len()
+                        "{first}/{second} pitch {pitch}: {} estimates; {}",
+                        estimates.len(),
+                        analyzer.diagnostics()
                     );
                     for estimate in estimates.iter().skip(5) {
                         assert!(

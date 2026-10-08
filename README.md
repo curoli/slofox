@@ -216,6 +216,23 @@ The scales divide measured F1/F2 before mapping; they do not alter pitch, sound
 or the displayed raw frequencies. Tune with sustained A, E/I and O/U sounds.
 The previous animation remains available with `--mouth-mode volume`.
 
+If O/U is consistently classified as E/I, add `--audio-diagnostics` to your
+usual live command. Once per second, stderr prints a `Slofox Microphone` and
+`Slofox Browser` line with RMS, analysis status and resonance candidates:
+`850Hz/BW150Hz/0.0010` means an 850 Hz resonance, a 150 Hz bandwidth and power
+relative to the strongest LPC spectral bin in the 150–3000 Hz range.
+The list also includes candidates
+rejected for excessive bandwidth or weak power. No samples are printed or
+saved, and normal startup does not emit these diagnostics. In demo mode no
+capture runs, so this option prints no capture diagnostics.
+
+For troubleshooting, sustain each of A, I, O and U for several seconds and
+compare the corresponding microphone lines. A weak eligible F2 now causes a
+bounded volume fallback rather than promoting a stronger F3 to F2. Broad poles
+are still excluded by the bandwidth criterion; diagnostics help distinguish
+that case from a missing resonance or an incorrect mouth mapping. Gain controls
+mouth strength, not the measured formant frequencies.
+
 The general formant-to-mouth approach is described by
 [Ishi et al., Interspeech 2012](https://www.isca-archive.org/interspeech_2012/ishi12_interspeech.html).
 Slofox uses its own simplified mapping, not the paper's complete method.

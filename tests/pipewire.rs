@@ -135,7 +135,8 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         thread::sleep(Duration::from_millis(50));
     }
 
-    let first_capture = Capture::start(&browser_name, true, "TestFirst").unwrap();
+    let first_capture =
+        Capture::start_with_diagnostics(&browser_name, true, "TestFirst", true).unwrap();
     let second_capture = Capture::start(&source_name, false, "TestSecond").unwrap();
     let mut first_reader = Reader::new(first_capture.signal.clone(), 0);
     let mut second_reader = Reader::new(second_capture.signal.clone(), 0);
