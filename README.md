@@ -188,10 +188,12 @@ cycles through open, wide and rounded shapes without capturing audio:
 cargo run --locked -- --demo
 ```
 
-Audio is low-pass filtered and downsampled from 48 to 16 kHz. Every 10 ms,
-an LPC spectral envelope estimates the first two resonances (F1/F2) from a
-32 ms Hamming window. Periodicity and peak plausibility checks reject uncertain
-frames; an estimate can be held for at most 50 ms to bridge brief gaps.
+Audio is low-pass filtered and downsampled from 48 to 12 kHz. Every 10 ms,
+Burg LPC estimates the first two resonances (F1/F2) from a 32 ms Hamming window.
+Resonances are extracted from the LPC poles, including close O/U formants that
+can merge into a single spectral peak. Periodicity, bandwidth and spectral
+strength checks reject uncertain frames; an estimate can be held for at most
+50 ms to bridge brief gaps.
 F1 influences jaw opening and F2 influences lip width/rounding. Loudness still
 controls movement strength and closes the mouth below `--threshold`. Both lips,
 the mouth cavity and teeth move together with frame-rate-independent smoothing.
@@ -217,6 +219,8 @@ The previous animation remains available with `--mouth-mode volume`.
 The general formant-to-mouth approach is described by
 [Ishi et al., Interspeech 2012](https://www.isca-archive.org/interspeech_2012/ishi12_interspeech.html).
 Slofox uses its own simplified mapping, not the paper's complete method.
+For background on Burg LPC and formant extraction, see the
+[Praat documentation](https://fon.hum.uva.nl/praat/manual/Sound__To_Formant__burg____.html).
 
 ## Development
 

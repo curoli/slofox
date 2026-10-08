@@ -1,10 +1,101 @@
 use std::f64::consts::PI;
 
-const RATE: f64 = 16_000.0;
-const WINDOW: usize = 512;
-const ORDER: usize = 18;
+const RATE: f64 = 12_000.0;
+const WINDOW: usize = 384;
+const ORDER: usize = 12;
 const BINS: usize = 71;
 const TAPS: usize = 31;
+
+#[derive(Clone, Copy)]
+struct Complex {
+    real: f64,
+    imaginary: f64,
+}
+
+impl Complex {
+    fn subtract(self, other: Self) -> Self {
+        Self {
+            real: self.real - other.real,
+            imaginary: self.imaginary - other.imaginary,
+        }
+    }
+
+    fn multiply(self, other: Self) -> Self {
+        Self {
+            real: self.real * other.real - self.imaginary * other.imaginary,
+            imaginary: self.real * other.imaginary + self.imaginary * other.real,
+        }
+    }
+
+    fn divide(self, other: Self) -> Self {
+        let norm = other.real.powi(2) + other.imaginary.powi(2);
+        Self {
+            real: (self.real * other.real + self.imaginary * other.imaginary) / norm,
+            imaginary: (self.imaginary * other.real - self.real * other.imaginary) / norm,
+        }
+    }
+
+    fn norm(self) -> f64 {
+        self.real.hypot(self.imaginary)
+    }
+}
+
+fn resonances(coefficients: &[f64; ORDER + 1]) -> Option<Vec<(f64, f64)>> {
+    let mut roots: [Complex; ORDER] = std::array::from_fn(|index| {
+        let angle = 2.0 * PI * (index as f64 + 0.37) / ORDER as f64;
+        Complex {
+            real: 0.9 * angle.cos(),
+            imaginary: 0.9 * angle.sin(),
+        }
+    });
+    for _ in 0..100 {
+        let mut largest_change = 0.0_f64;
+        for index in 0..ORDER {
+            let root = roots[index];
+            let mut value = Complex {
+                real: 1.0,
+                imaginary: 0.0,
+            };
+            for coefficient in &coefficients[1..] {
+                value = value.multiply(root);
+                value.real += coefficient;
+            }
+            let mut denominator = Complex {
+                real: 1.0,
+                imaginary: 0.0,
+            };
+            for (other_index, other_root) in roots.iter().enumerate() {
+                if index != other_index {
+                    denominator = denominator.multiply(root.subtract(*other_root));
+                }
+            }
+            let change = value.divide(denominator);
+            if !change.norm().is_finite() {
+                return None;
+            }
+            largest_change = largest_change.max(change.norm());
+            roots[index] = root.subtract(change);
+        }
+        if largest_change < 1e-8 {
+            let mut resonances: Vec<_> = roots
+                .iter()
+                .filter(|root| root.imaginary > 0.0)
+                .map(|root| {
+                    (
+                        root.imaginary.atan2(root.real) * RATE / (2.0 * PI),
+                        -root.norm().ln() * RATE / PI,
+                    )
+                })
+                .filter(|&(frequency, bandwidth)| {
+                    (150.0..=3200.0).contains(&frequency) && (30.0..=500.0).contains(&bandwidth)
+                })
+                .collect();
+            resonances.sort_by(|left, right| left.0.total_cmp(&right.0));
+            return Some(resonances);
+        }
+    }
+    None
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Formants {
@@ -55,7 +146,7 @@ impl Default for Analyzer {
     fn default() -> Self {
         let mut filter = std::array::from_fn(|index| {
             let offset = index as f64 - (TAPS / 2) as f64;
-            let cutoff = 6500.0 / 48_000.0;
+            let cutoff = 5000.0 / 48_000.0;
             let sinc = if offset == 0.0 {
                 2.0 * cutoff
             } else {
@@ -118,7 +209,7 @@ impl Analyzer {
             };
             self.input_cursor = (self.input_cursor + 1) % TAPS;
             self.decimation += 1;
-            if self.decimation == 3 {
+            if self.decimation == 4 {
                 self.decimation = 0;
                 let filtered = self
                     .filter
@@ -146,7 +237,7 @@ impl Analyzer {
         if energy < 1e-8 {
             return None;
         }
-        let periodicity = (32..=200)
+        let periodicity = (24..=150)
             .map(|lag| {
                 let mut correlation = 0.0;
                 let mut left_energy = 0.0;
@@ -166,20 +257,18 @@ impl Analyzer {
             frame[index] = (frame[index] - 0.97 * frame[index - 1]) * self.window[index];
         }
         frame[0] *= self.window[0];
-        let correlation: [f64; ORDER + 1] = std::array::from_fn(|lag| {
-            (lag..WINDOW)
-                .map(|index| frame[index] * frame[index - lag])
-                .sum()
-        });
         let mut coefficients = [0.0; ORDER + 1];
         coefficients[0] = 1.0;
-        let mut error = correlation[0] * 1.00001;
+        let mut forward = frame;
+        let mut backward = frame;
         for order in 1..=ORDER {
-            let reflection = -(correlation[order]
-                + (1..order)
-                    .map(|index| coefficients[index] * correlation[order - index])
-                    .sum::<f64>())
-                / error;
+            let mut numerator = 0.0;
+            let mut denominator = 0.0;
+            for index in order..WINDOW {
+                numerator += forward[index] * backward[index - 1];
+                denominator += forward[index].powi(2) + backward[index - 1].powi(2);
+            }
+            let reflection = -2.0 * numerator / denominator.max(1e-20);
             if !reflection.is_finite() || reflection.abs() >= 0.9999 {
                 return None;
             }
@@ -188,7 +277,12 @@ impl Analyzer {
                 coefficients[index] += reflection * previous[order - index];
             }
             coefficients[order] = reflection;
-            error *= 1.0 - reflection * reflection;
+            for index in (order..WINDOW).rev() {
+                let old_forward = forward[index];
+                let old_backward = backward[index - 1];
+                forward[index] = old_forward + reflection * old_backward;
+                backward[index] = old_backward + reflection * old_forward;
+            }
         }
         let spectrum: [f64; BINS] = std::array::from_fn(|bin| {
             let real: f64 = coefficients
@@ -204,20 +298,21 @@ impl Analyzer {
             1.0 / (real * real + imaginary * imaginary).max(1e-12)
         });
         let maximum = spectrum[3..=60].iter().copied().fold(0.0_f64, f64::max);
-        let mut peaks = (3..=60).filter(|&bin| {
-            spectrum[bin] > spectrum[bin - 1]
-                && spectrum[bin] > spectrum[bin + 1]
-                && spectrum[bin] > spectrum[bin - 3].min(spectrum[bin + 3]) * 1.1
-                && spectrum[bin] > maximum * 0.002
+        let resonances = resonances(&coefficients)?;
+        let mut candidates = resonances.iter().filter(|&&(frequency, _)| {
+            let bin = (frequency / 50.0).round() as usize;
+            spectrum[bin] > maximum * 0.002
         });
-        let first = peaks.find(|&bin| bin <= 22)?;
-        let second = peaks.find(|&bin| bin >= first + 4)?;
-        if first > 10 && second - first > 40 {
+        let first = candidates.find(|&&(frequency, _)| frequency <= 1100.0)?.0;
+        let second = candidates
+            .find(|&&(frequency, _)| frequency >= first + 100.0)?
+            .0;
+        if first > 500.0 && second - first > 2000.0 {
             return None;
         }
         Some(Formants {
-            first: first as f32 * 50.0,
-            second: second as f32 * 50.0,
+            first: first as f32,
+            second: second as f32,
         })
     }
 }
@@ -290,6 +385,92 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn rounded_vowels_remain_rounded_after_other_vowels() {
+        for pitch in [100.0, 140.0, 180.0] {
+            let mut analyzer = Analyzer::default();
+            for (first, second, label) in [
+                (300.0, 2400.0, "E/I-like"),
+                (250.0, 600.0, "O/U-like"),
+                (800.0, 1200.0, "A-like"),
+                (300.0, 700.0, "O/U-like"),
+            ] {
+                let samples = vowel(first, second, pitch);
+                let mut correct = 0;
+                let mut wrong = Vec::new();
+                for block in samples.chunks(480).cycle().take(300) {
+                    let estimate = analyzer.analyze(block);
+                    if let Some(formants) = estimate {
+                        if formants.label(1.0) == label {
+                            correct += 1;
+                        } else {
+                            wrong.push(formants);
+                        }
+                    }
+                }
+                assert!(
+                    correct > 270,
+                    "{first}/{second} pitch {pitch}: {correct} correct, wrong {wrong:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn identifies_close_poles_even_without_separate_spectral_peaks() {
+        let mut coefficients = [0.0; ORDER + 1];
+        coefficients[0] = 1.0;
+        let mut degree = 0;
+        for (frequency, bandwidth) in [(250.0, 90.0), (600.0, 120.0), (3000.0, 180.0)] {
+            let radius = (-PI * bandwidth / RATE).exp();
+            let linear = -2.0 * radius * (2.0 * PI * frequency / RATE).cos();
+            let quadratic = radius * radius;
+            let previous = coefficients;
+            coefficients.fill(0.0);
+            for index in 0..=degree {
+                coefficients[index] += previous[index];
+                coefficients[index + 1] += previous[index] * linear;
+                coefficients[index + 2] += previous[index] * quadratic;
+            }
+            degree += 2;
+        }
+        let estimates = resonances(&coefficients).unwrap();
+        assert_eq!(estimates.len(), 3);
+        for ((frequency, bandwidth), (expected_frequency, expected_bandwidth)) in estimates
+            .into_iter()
+            .zip([(250.0, 90.0), (600.0, 120.0), (3000.0, 180.0)])
+        {
+            assert!((frequency - expected_frequency).abs() < 0.01);
+            assert!((bandwidth - expected_bandwidth).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn rounded_vowels_survive_source_tilt_and_low_background_noise() {
+        let mut seed = 7531_u32;
+        for (first, second) in [(250.0, 600.0), (300.0, 700.0), (350.0, 850.0)] {
+            let mut samples = vowel(first, second, 140.0);
+            let mut previous = 0.0;
+            for sample in &mut samples {
+                previous += 0.15 * (*sample - previous);
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = (seed as f64 / u32::MAX as f64 - 0.5) as f32 * 0.0005;
+                *sample = previous + noise;
+            }
+            let mut analyzer = Analyzer::default();
+            let mut correct = 0;
+            for block in samples.chunks(480) {
+                if analyzer
+                    .analyze(block)
+                    .is_some_and(|formants| formants.label(1.0) == "O/U-like")
+                {
+                    correct += 1;
+                }
+            }
+            assert!(correct > 35, "{first}/{second}: {correct} correct");
         }
     }
 

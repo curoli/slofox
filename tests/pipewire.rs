@@ -147,7 +147,7 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
             0.2 * (sample as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin()
         })
         .chain(synthetic_vowel(800.0, 1200.0))
-        .chain(synthetic_vowel(350.0, 850.0))
+        .chain(synthetic_vowel(250.0, 600.0))
         .flat_map(f32::to_ne_bytes)
         .collect();
     fs::write(&file.0, bytes).unwrap();
