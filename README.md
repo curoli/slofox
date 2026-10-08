@@ -167,7 +167,7 @@ cargo test --locked --test pipewire -- --ignored
 
 It requires a running PipeWire session and creates two temporary null sinks
 and virtual browser/microphone nodes. It tests both sink-monitor and source capture.
-It is skipped in the normal test suite and CI.
+It is skipped in the normal test suite.
 
 `src/audio.rs` separates capture, timestamped buffering, RMS analysis and the
 smoothed `SpeechPose`. It reserves lip-rounding and lip-width coefficients for
