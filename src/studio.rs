@@ -32,6 +32,76 @@ pub enum PartKind {
 #[derive(Component)]
 pub struct StudioCamera;
 
+const DESK_THICKNESS: f32 = 0.10;
+pub const DESK_SURFACE_Y: f32 = 1.17;
+const ARM_CLEARANCE: f32 = 0.005;
+
+#[derive(Component)]
+pub struct ArmBounds {
+    parts: [Transform; 8],
+}
+
+impl ArmBounds {
+    fn lowest_y(&self, host: &Transform, arm: &Transform) -> f32 {
+        let parent = host.to_matrix() * arm.to_matrix();
+        self.parts
+            .iter()
+            .map(|part| {
+                let matrix = parent * part.to_matrix();
+                let extent = Vec3::new(matrix.x_axis.y, matrix.y_axis.y, matrix.z_axis.y).length();
+                matrix.w_axis.y - extent
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    pub fn keep_above_desk(&self, host: &Transform, arm: &mut Transform) {
+        let correction = (DESK_SURFACE_Y + ARM_CLEARANCE - self.lowest_y(host, arm)).max(0.0);
+        arm.translation += host
+            .to_matrix()
+            .inverse()
+            .transform_vector3(Vec3::Y * correction);
+    }
+}
+
+pub fn host_motion(elapsed: f32, index: usize, speech: f32) -> (Quat, f32) {
+    let phase = elapsed + index as f32 * 2.1;
+    (
+        Quat::from_euler(
+            EulerRot::XYZ,
+            0.015 * (phase * 0.7).sin() - speech * 0.018,
+            0.025 * (phase * 0.37).sin(),
+            0.012 * (phase * 0.53).sin(),
+        ),
+        0.76 + 0.006 * (phase * 1.7).sin(),
+    )
+}
+
+pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
+    let gesture = speech * (0.5 + 0.5 * (phase * 1.8 + side).sin());
+    Quat::from_euler(
+        EulerRot::XYZ,
+        -0.04 - gesture * 0.22,
+        side * gesture * 0.10,
+        side * (0.02 + gesture * 0.10),
+    )
+}
+
+fn arm_parts(side: f32) -> [Transform; 8] {
+    let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
+    let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+    std::array::from_fn(|index| match index {
+        0 => limb_transform(Vec3::ZERO, elbow, 0.066),
+        1 => Transform::from_translation(elbow).with_scale(Vec3::splat(0.048)),
+        2 => limb_transform(elbow, wrist, 0.047),
+        3 => Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
+            .with_scale(Vec3::new(0.052, 0.031, 0.088)),
+        _ => Transform::from_translation(
+            wrist + Vec3::new(((index - 4) as f32 - 1.5) * 0.021, -0.002, 0.126),
+        )
+        .with_scale(Vec3::new(0.011, 0.018, 0.033)),
+    })
+}
+
 struct Palette {
     skin: Handle<StandardMaterial>,
     hair: Handle<StandardMaterial>,
@@ -95,29 +165,15 @@ fn ellipsoid(
     )
 }
 
-fn limb(
-    commands: &mut Commands,
-    geometry: &Geometry,
-    parent: Entity,
-    material: &Handle<StandardMaterial>,
-    start: Vec3,
-    end: Vec3,
-    radius: f32,
-) {
+fn limb_transform(start: Vec3, end: Vec3, radius: f32) -> Transform {
     let direction = end - start;
-    object(
-        commands,
-        Some(parent),
-        &geometry.sphere,
-        material,
-        Transform::from_translation((start + end) * 0.5)
-            .with_rotation(Quat::from_rotation_arc(Vec3::Y, direction.normalize()))
-            .with_scale(Vec3::new(
-                radius,
-                direction.length() * 0.5 + radius * 0.25,
-                radius,
-            )),
-    );
+    Transform::from_translation((start + end) * 0.5)
+        .with_rotation(Quat::from_rotation_arc(Vec3::Y, direction.normalize()))
+        .with_scale(Vec3::new(
+            radius,
+            direction.length() * 0.5 + radius * 0.25,
+            radius,
+        ))
 }
 
 fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind, rest: Transform) {
@@ -454,48 +510,16 @@ fn host(
         let arm = commands.spawn((arm_rest, Visibility::default())).id();
         commands.entity(root).add_child(arm);
         animated(commands, arm, index, PartKind::Arm(side), arm_rest);
-        let elbow = Vec3::new(side * 0.085, -0.29, 0.12);
-        let wrist = Vec3::new(-side * 0.01, -0.09, 0.46);
-        limb(
-            commands,
-            geometry,
-            arm,
-            if index == 0 {
-                &palette.skin
-            } else {
+        let parts = arm_parts(side);
+        for (part, transform) in parts.iter().enumerate() {
+            let material = if index == 1 && part == 0 {
                 &palette.shirt
-            },
-            Vec3::ZERO,
-            elbow,
-            0.066,
-        );
-        ellipsoid(
-            commands,
-            geometry,
-            arm,
-            &palette.skin,
-            elbow,
-            Vec3::splat(0.048),
-        );
-        limb(commands, geometry, arm, &palette.skin, elbow, wrist, 0.047);
-        ellipsoid(
-            commands,
-            geometry,
-            arm,
-            &palette.skin,
-            wrist + Vec3::new(0.0, 0.0, 0.06),
-            Vec3::new(0.052, 0.031, 0.088),
-        );
-        for finger in 0..4 {
-            ellipsoid(
-                commands,
-                geometry,
-                arm,
-                &palette.skin,
-                wrist + Vec3::new((finger as f32 - 1.5) * 0.021, -0.002, 0.126),
-                Vec3::new(0.011, 0.018, 0.033),
-            );
+            } else {
+                &palette.skin
+            };
+            object(commands, Some(arm), &geometry.sphere, material, *transform);
         }
+        commands.entity(arm).insert(ArmBounds { parts });
     }
 }
 
@@ -592,7 +616,8 @@ pub fn setup(
         None,
         &geometry.cube,
         &wood,
-        Transform::from_xyz(0.0, 1.12, 0.65).with_scale(Vec3::new(2.7, 0.10, 1.0)),
+        Transform::from_xyz(0.0, DESK_SURFACE_Y - DESK_THICKNESS * 0.5, 0.65)
+            .with_scale(Vec3::new(2.7, DESK_THICKNESS, 1.0)),
     );
     object(
         &mut commands,
@@ -607,7 +632,8 @@ pub fn setup(
             None,
             &geometry.cylinder,
             &wood,
-            Transform::from_xyz(side * 1.35, 1.12, 0.65).with_scale(Vec3::new(0.5, 0.10, 0.5)),
+            Transform::from_xyz(side * 1.35, DESK_SURFACE_Y - DESK_THICKNESS * 0.5, 0.65)
+                .with_scale(Vec3::new(0.5, DESK_THICKNESS, 0.5)),
         );
         object(
             &mut commands,
@@ -736,4 +762,73 @@ pub fn setup(
         Msaa::Sample4,
         Transform::from_xyz(0.0, 2.12, 4.25).looking_at(Vec3::new(0.0, 1.44, 0.0), Vec3::Y),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_arms_clear_the_desk_during_breathing_leaning_and_gestures() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let bounds = ArmBounds {
+                    parts: arm_parts(side),
+                };
+                for frame in 0..960 {
+                    let elapsed = frame as f32 * 0.125;
+                    for speech_step in 0..=10 {
+                        let speech = speech_step as f32 / 10.0;
+                        let (rotation, height) = host_motion(elapsed, index, speech);
+                        let host =
+                            Transform::from_xyz(if index == 0 { -0.76 } else { 0.76 }, height, 0.0)
+                                .with_rotation(rotation);
+                        let mut arm = Transform::from_xyz(side * 0.29, 0.55, 0.0).with_rotation(
+                            arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                        );
+                        let original = arm.translation;
+                        bounds.keep_above_desk(&host, &mut arm);
+                        assert!(
+                            bounds.lowest_y(&host, &arm)
+                                >= DESK_SURFACE_Y + ARM_CLEARANCE - 0.00001,
+                            "host {index}, side {side}, time {elapsed}, speech {speech}"
+                        );
+                        assert!(
+                            (arm.translation - original).length() < 0.06,
+                            "shoulder correction is too large"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn correction_accounts_for_rotated_nonuniform_parent_and_is_idempotent() {
+        let host = Transform::from_xyz(0.0, 0.72, 0.0)
+            .with_rotation(Quat::from_euler(EulerRot::XYZ, 0.15, 0.2, -0.12))
+            .with_scale(Vec3::new(1.1, 0.9, 1.2));
+        let bounds = ArmBounds {
+            parts: arm_parts(1.0),
+        };
+        let mut arm = Transform::from_xyz(0.29, 0.55, 0.0);
+        assert!(bounds.lowest_y(&host, &arm) < DESK_SURFACE_Y);
+        bounds.keep_above_desk(&host, &mut arm);
+        assert!((bounds.lowest_y(&host, &arm) - DESK_SURFACE_Y - ARM_CLEARANCE).abs() < 0.00001);
+        let corrected = arm.translation;
+        bounds.keep_above_desk(&host, &mut arm);
+        assert!((corrected - arm.translation).length() < 0.00001);
+    }
+
+    #[test]
+    fn already_clear_arms_do_not_move() {
+        let host = Transform::from_xyz(0.0, 1.0, 0.0);
+        let bounds = ArmBounds {
+            parts: arm_parts(-1.0),
+        };
+        let mut arm = Transform::from_xyz(-0.29, 0.55, 0.0);
+        let original = arm;
+        bounds.keep_above_desk(&host, &mut arm);
+        assert_eq!(arm, original);
+    }
 }

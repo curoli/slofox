@@ -20,7 +20,7 @@ use slofox::{
     formants::Formants,
     routing::{self, TabRouter},
 };
-use studio::{AnimatedPart, Host, PartKind, StudioCamera};
+use studio::{AnimatedPart, ArmBounds, Host, PartKind, StudioCamera};
 
 #[derive(Resource)]
 struct Session {
@@ -296,25 +296,21 @@ fn animate_hosts(
 ) {
     let elapsed = time.elapsed_secs();
     for (host, mut transform) in &mut hosts {
-        let phase = elapsed + host.index as f32 * 2.1;
         let speech = session.poses[host.index].jaw_open;
-        transform.rotation = Quat::from_euler(
-            EulerRot::XYZ,
-            0.015 * (phase * 0.7).sin() - speech * 0.018,
-            0.025 * (phase * 0.37).sin(),
-            0.012 * (phase * 0.53).sin(),
-        );
-        transform.translation.y = 0.76 + 0.006 * (phase * 1.7).sin();
+        let (rotation, height) = studio::host_motion(elapsed, host.index, speech);
+        transform.rotation = rotation;
+        transform.translation.y = height;
     }
 }
 
 fn animate_parts(
     time: Res<Time>,
     session: Res<Session>,
-    mut parts: Query<(&AnimatedPart, &mut Transform), Without<Host>>,
+    hosts: Query<&Transform, With<Host>>,
+    mut parts: Query<(&AnimatedPart, &mut Transform, Option<&ArmBounds>, &ChildOf), Without<Host>>,
 ) {
     let elapsed = time.elapsed_secs();
-    for (part, mut transform) in &mut parts {
+    for (part, mut transform, bounds, parent) in &mut parts {
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
         *transform = part.rest;
@@ -331,13 +327,12 @@ fn animate_parts(
                 );
             }
             PartKind::Arm(side) => {
-                let gesture = pose.jaw_open * (0.5 + 0.5 * (phase * 1.8 + side).sin());
-                transform.rotation = Quat::from_euler(
-                    EulerRot::XYZ,
-                    -0.04 - gesture * 0.22,
-                    side * gesture * 0.10,
-                    side * (0.02 + gesture * 0.10),
-                );
+                transform.rotation = studio::arm_rotation(phase, side, pose.jaw_open);
+                if let Some(bounds) = bounds
+                    && let Ok(host) = hosts.get(parent.parent())
+                {
+                    bounds.keep_above_desk(host, &mut transform);
+                }
             }
             PartKind::Eye => {
                 let blink_phase = phase.rem_euclid(4.7);

@@ -15,6 +15,8 @@ OBS records the app window and the two audio channels.
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
+  Arms, hands and fingers stay above the desk surface during these movements
+  using a lightweight geometric constraint, without a physics engine.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
 - A diagnostic overlay showing both audio levels and capture status, which can
