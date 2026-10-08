@@ -228,9 +228,14 @@ capture runs, so this option prints no capture diagnostics.
 
 For troubleshooting, sustain each of A, I, O and U for several seconds and
 compare the corresponding microphone lines. A weak eligible F2 now causes a
-bounded volume fallback rather than promoting a stronger F3 to F2. Broad poles
-are still excluded by the bandwidth criterion; diagnostics help distinguish
-that case from a missing resonance or an incorrect mouth mapping. Gain controls
+bounded volume fallback rather than promoting a stronger F3 to F2. Candidates
+with 500–900 Hz bandwidth are admitted only if their relative power is at least
+2%; otherwise the usual 30–500 Hz bandwidth criterion applies. The selected
+F2 must have at least 1% relative power. This preserves strong broad O/U
+resonances while avoiding confident E/I labels from very weak high resonances.
+If F2 is genuinely missing or too weak, the animation falls back to volume;
+these checks cannot reconstruct it. Diagnostics help distinguish that case
+from an incorrect mouth mapping. Gain controls
 mouth strength, not the measured formant frequencies.
 
 The general formant-to-mouth approach is described by

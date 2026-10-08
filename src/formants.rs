@@ -111,15 +111,15 @@ struct Candidate {
 }
 
 fn select_formants(candidates: &[Candidate]) -> Option<Formants> {
-    let mut eligible = candidates
-        .iter()
-        .filter(|candidate| (30.0..=500.0).contains(&candidate.bandwidth));
+    let mut eligible = candidates.iter().filter(|candidate| {
+        (30.0..=500.0).contains(&candidate.bandwidth)
+            || ((500.0..=900.0).contains(&candidate.bandwidth) && candidate.strength >= 0.02)
+    });
     let first = eligible.next()?;
     let second = eligible.find(|candidate| candidate.frequency >= first.frequency + 100.0)?;
     if first.frequency > 1100.0
-        || [first, second]
-            .iter()
-            .any(|candidate| candidate.strength <= 0.002)
+        || first.strength <= 0.002
+        || second.strength < 0.01
         || (first.frequency > 500.0 && second.frequency - first.frequency > 2000.0)
     {
         return None;
@@ -376,6 +376,74 @@ impl Analyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strong_broad_second_formant_from_microphone_log_is_preserved() {
+        let candidates = [
+            Candidate {
+                frequency: 400.0,
+                bandwidth: 203.0,
+                strength: 1.0,
+            },
+            Candidate {
+                frequency: 592.0,
+                bandwidth: 650.0,
+                strength: 0.1567,
+            },
+            Candidate {
+                frequency: 2377.0,
+                bandwidth: 318.0,
+                strength: 0.0043,
+            },
+        ];
+        let formants = select_formants(&candidates).unwrap();
+        assert_eq!(
+            formants,
+            Formants {
+                first: 400.0,
+                second: 592.0
+            }
+        );
+        assert_eq!(formants.label(1.0), "O/U-like");
+    }
+
+    #[test]
+    fn weak_high_resonance_from_microphone_log_is_not_trusted_as_f2() {
+        let candidates = [
+            Candidate {
+                frequency: 445.0,
+                bandwidth: 172.0,
+                strength: 1.0,
+            },
+            Candidate {
+                frequency: 2388.0,
+                bandwidth: 480.0,
+                strength: 0.0056,
+            },
+        ];
+        assert_eq!(select_formants(&candidates), None);
+        let valid_wide = [
+            candidates[0],
+            Candidate {
+                strength: 0.2,
+                ..candidates[1]
+            },
+        ];
+        assert_eq!(select_formants(&valid_wide).unwrap().label(1.0), "E/I-like");
+        let weak_broad_artifact = [
+            candidates[0],
+            Candidate {
+                frequency: 1405.0,
+                bandwidth: 756.0,
+                strength: 0.0056,
+            },
+            valid_wide[1],
+        ];
+        assert_eq!(
+            select_formants(&weak_broad_artifact).unwrap().label(1.0),
+            "E/I-like"
+        );
+    }
 
     #[test]
     fn weak_second_formant_is_not_replaced_by_a_strong_third() {
