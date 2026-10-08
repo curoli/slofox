@@ -65,6 +65,33 @@ fn isolated_sink(name: &str) -> Process {
     )
 }
 
+fn synthetic_vowel(first: f64, second: f64) -> Vec<f32> {
+    let mut samples: Vec<f64> = (0..SAMPLE_RATE)
+        .map(|index| if index % 480 == 0 { 1.0 } else { 0.0 })
+        .collect();
+    for (frequency, bandwidth) in [(first, 90.0), (second, 120.0), (3000.0, 180.0)] {
+        let radius = (-std::f64::consts::PI * bandwidth / SAMPLE_RATE as f64).exp();
+        let feedback =
+            2.0 * radius * (std::f64::consts::TAU * frequency / SAMPLE_RATE as f64).cos();
+        let mut previous = 0.0;
+        let mut older = 0.0;
+        for sample in &mut samples {
+            let filtered = *sample + feedback * previous - radius * radius * older;
+            older = previous;
+            previous = filtered;
+            *sample = filtered;
+        }
+    }
+    let peak = samples
+        .iter()
+        .map(|sample| sample.abs())
+        .fold(0.0, f64::max);
+    samples
+        .into_iter()
+        .map(|sample| (sample / peak * 0.3) as f32)
+        .collect()
+}
+
 #[test]
 #[ignore = "requires a running PipeWire session and pipewire-bin; creates isolated test sinks"]
 fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
@@ -115,11 +142,13 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     let file = TemporaryAudio(
         std::env::temp_dir().join(format!("slofox_test_{}.f32", std::process::id())),
     );
-    let bytes: Vec<u8> = (0..SAMPLE_RATE * 3)
-        .flat_map(|sample| {
-            (0.2 * (sample as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin())
-                .to_ne_bytes()
+    let bytes: Vec<u8> = (0..SAMPLE_RATE)
+        .map(|sample| {
+            0.2 * (sample as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin()
         })
+        .chain(synthetic_vowel(800.0, 1200.0))
+        .chain(synthetic_vowel(350.0, 850.0))
+        .flat_map(f32::to_ne_bytes)
         .collect();
     fs::write(&file.0, bytes).unwrap();
     let mut playback = Process(
@@ -145,13 +174,19 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     let mut heard_tone = false;
     let mut peak_rms = 0.0_f32;
     let mut second_has_packets = false;
+    let mut first_vowels = [false; 2];
     while started.elapsed() < Duration::from_secs(3) {
         let now = Instant::now();
-        let level = first_reader.sample(now);
+        let features = first_reader.features(now);
+        let level = features.rms;
+        if let Some(formants) = features.formants {
+            first_vowels[0] |= formants.label(1.0) == "A-like";
+            first_vowels[1] |= formants.label(1.0) == "O/U-like";
+        }
         peak_rms = peak_rms.max(level);
         heard_tone |= level > 0.05;
         assert!(
-            second_reader.sample(now) < 0.001,
+            second_reader.features(now) == Default::default(),
             "tone leaked into the second input"
         );
         second_has_packets |= second_reader.signal.status(now) == "live";
@@ -164,6 +199,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
         first_reader.signal.status(Instant::now())
     );
     assert!(second_has_packets, "second input never connected");
+    assert!(
+        first_vowels.into_iter().all(|heard| heard),
+        "browser input missed vowel features"
+    );
     thread::sleep(Duration::from_millis(300));
     let mut second_playback = Process(
         Command::new("pw-play")
@@ -185,11 +224,17 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     );
     let started = Instant::now();
     let mut second_heard_tone = false;
+    let mut second_vowels = [false; 2];
     while started.elapsed() < Duration::from_secs(3) {
         let now = Instant::now();
-        second_heard_tone |= second_reader.sample(now) > 0.05;
+        let features = second_reader.features(now);
+        second_heard_tone |= features.rms > 0.05;
+        if let Some(formants) = features.formants {
+            second_vowels[0] |= formants.label(1.0) == "A-like";
+            second_vowels[1] |= formants.label(1.0) == "O/U-like";
+        }
         assert!(
-            first_reader.sample(now) < 0.001,
+            first_reader.features(now) == Default::default(),
             "second tone leaked into the first input"
         );
         thread::sleep(Duration::from_millis(20));
@@ -198,6 +243,10 @@ fn captures_browser_monitor_and_microphone_source_without_cross_talk() {
     assert!(
         second_heard_tone,
         "source input never received the test tone"
+    );
+    assert!(
+        second_vowels.into_iter().all(|heard| heard),
+        "microphone source missed vowel features"
     );
 }
 

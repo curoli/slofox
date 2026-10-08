@@ -1,4 +1,10 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MouthMode {
+    Formants,
+    Volume,
+}
 
 #[derive(Parser, Debug, Clone)]
 #[command(version, about = "Two audio-driven 3D talk show hosts for OBS")]
@@ -37,6 +43,17 @@ pub struct Options {
     pub browser_gain: f32,
     #[arg(long, default_value = "8", value_parser = positive_float)]
     pub microphone_gain: f32,
+    #[arg(
+        long,
+        value_enum,
+        default_value = "formants",
+        help = "Local vowel-like mouth shapes or the original volume-only animation"
+    )]
+    pub mouth_mode: MouthMode,
+    #[arg(long, default_value = "1", value_parser = formant_scale, help = "Browser voice formant normalization (0.7–1.5; larger for higher resonances)")]
+    pub browser_formant_scale: f32,
+    #[arg(long, default_value = "1", value_parser = formant_scale, help = "Microphone voice formant normalization (0.7–1.5)")]
+    pub microphone_formant_scale: f32,
     #[arg(long, default_value = "0.008", value_parser = threshold)]
     pub threshold: f32,
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=2000))]
@@ -73,6 +90,15 @@ fn threshold(value: &str) -> Result<f32, String> {
     }
 }
 
+fn formant_scale(value: &str) -> Result<f32, String> {
+    let number = positive_float(value)?;
+    if (0.7..=1.5).contains(&number) {
+        Ok(number)
+    } else {
+        Err("formant scale must be between 0.7 and 1.5".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,8 +112,29 @@ mod tests {
             vec!["slofox", "--microphone-gain", "0"],
             vec!["slofox", "--browser-delay-ms", "2001"],
             vec!["slofox", "--fps", "0"],
+            vec!["slofox", "--mouth-mode", "phonemes"],
+            vec!["slofox", "--browser-formant-scale", "NaN"],
+            vec!["slofox", "--microphone-formant-scale", "0.6"],
+            vec!["slofox", "--browser-formant-scale", "1.6"],
         ] {
             assert!(Options::try_parse_from(arguments).is_err());
         }
+    }
+
+    #[test]
+    fn formants_are_default_and_volume_remains_available() {
+        let defaults = Options::try_parse_from(["slofox"]).unwrap();
+        assert_eq!(defaults.mouth_mode, MouthMode::Formants);
+        assert_eq!(defaults.browser_formant_scale, 1.0);
+        let volume = Options::try_parse_from([
+            "slofox",
+            "--mouth-mode",
+            "volume",
+            "--microphone-formant-scale",
+            "1.2",
+        ])
+        .unwrap();
+        assert_eq!(volume.mouth_mode, MouthMode::Volume);
+        assert_eq!(volume.microphone_formant_scale, 1.2);
     }
 }

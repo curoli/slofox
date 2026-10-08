@@ -15,8 +15,9 @@ use bevy::{
 };
 use clap::Parser;
 use slofox::{
-    audio::{self, Capture, Envelope, Reader, SpeechPose},
-    config::Options,
+    audio::{self, Capture, Envelope, Features, Reader, SpeechPose},
+    config::{MouthMode, Options},
+    formants::Formants,
     routing::{self, TabRouter},
 };
 use studio::{AnimatedPart, Host, PartKind, StudioCamera};
@@ -221,22 +222,56 @@ fn update_audio(time: Res<Time>, mut session: ResMut<Session>) {
     let now = Instant::now();
     let elapsed = now.duration_since(session.started).as_secs_f32();
     for index in 0..2 {
-        let level = if session.options.demo {
+        let mut features = if session.options.demo {
             session.statuses[index] = "demo (no audio capture)".into();
-            audio::demo_level(elapsed, index)
+            let (first, second) = match (elapsed * 1.5) as usize % 3 {
+                0 => (800.0, 1200.0),
+                1 => (300.0, 2400.0),
+                _ => (350.0, 850.0),
+            };
+            Features {
+                rms: audio::demo_level(elapsed, index),
+                formants: Some(Formants { first, second }),
+            }
         } else {
             session.statuses[index] = session.readers[index].signal.status(now);
-            session.readers[index].sample(now)
+            session.readers[index].features(now)
         };
         let gain = if index == 0 {
             session.options.browser_gain
         } else {
             session.options.microphone_gain
         };
+        let scale = if index == 0 {
+            session.options.browser_formant_scale
+        } else {
+            session.options.microphone_formant_scale
+        };
+        if session.options.mouth_mode == MouthMode::Volume {
+            features.formants = None;
+        } else if features.rms > session.options.threshold {
+            let description = features.formants.map_or_else(
+                || "volume fallback".to_owned(),
+                |formants| {
+                    format!(
+                        "{} F1 {:.0} F2 {:.0} Hz",
+                        formants.label(scale),
+                        formants.first,
+                        formants.second
+                    )
+                },
+            );
+            session.statuses[index].push_str(&format!(" / {description}"));
+        }
         let threshold = session.options.threshold;
-        session.levels[index] = level;
-        session.poses[index] =
-            session.envelopes[index].update(level, gain, threshold, time.delta_secs());
+        session.levels[index] = features.rms;
+        session.poses[index] = session.envelopes[index].update_features(
+            features,
+            gain,
+            threshold,
+            time.delta_secs(),
+            scale,
+        );
     }
 }
 
@@ -301,15 +336,25 @@ fn animate_parts(
             }
             PartKind::Mouth => {
                 transform.scale.y += pose.jaw_open * 0.025;
-                transform.scale.x *= 1.0 - pose.lip_round * 0.3 + pose.lip_wide * 0.2;
+                transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
                 transform.translation.y -= pose.jaw_open * 0.014;
+                transform.translation.z += pose.lip_round * 0.008;
+            }
+            PartKind::UpperLip => {
+                transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
+                transform.scale.y *= 1.0 + pose.lip_round * 0.4;
+                transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::LowerLip => {
                 transform.translation.y -= pose.jaw_open * 0.041;
-                transform.scale.x *= 1.0 - pose.jaw_open * 0.1;
+                transform.scale.x *= (1.0 - pose.jaw_open * 0.1)
+                    * (1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25);
+                transform.scale.y *= 1.0 + pose.lip_round * 0.4;
+                transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
                 transform.scale.y *= pose.jaw_open.clamp(0.01, 0.6);
+                transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
             }
         }
     }

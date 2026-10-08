@@ -7,9 +7,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::formants::{Analyzer, Formants};
+
 pub const SAMPLE_RATE: usize = 48_000;
 const BLOCK_SAMPLES: usize = 480;
 const MAX_PACKETS: usize = 256;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Features {
+    pub rms: f32,
+    pub formants: Option<Formants>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
@@ -125,21 +133,56 @@ pub struct SpeechPose {
 #[derive(Debug, Default)]
 pub struct Envelope {
     level: f32,
+    round: f32,
+    wide: f32,
 }
 
 impl Envelope {
     pub fn update(&mut self, rms: f32, gain: f32, threshold: f32, seconds: f32) -> SpeechPose {
+        self.update_features(
+            Features {
+                rms,
+                formants: None,
+            },
+            gain,
+            threshold,
+            seconds,
+            1.0,
+        )
+    }
+
+    pub fn update_features(
+        &mut self,
+        features: Features,
+        gain: f32,
+        threshold: f32,
+        seconds: f32,
+        scale: f32,
+    ) -> SpeechPose {
+        let rms = features.rms;
         let target = if rms.is_finite() && rms > threshold {
             ((rms - threshold) * gain).sqrt().clamp(0.0, 1.0)
         } else {
             0.0
         };
-        let time_constant = if target > self.level { 0.035 } else { 0.12 };
+        let (open, round, wide) = if target > 0.0 {
+            features
+                .formants
+                .map_or((1.0, 0.0, 0.0), |formants| formants.shape(scale))
+        } else {
+            (1.0, 0.0, 0.0)
+        };
+        let jaw_target = target * (0.4 + 0.6 * open);
+        let time_constant = if jaw_target > self.level { 0.035 } else { 0.12 };
         let amount = 1.0 - (-seconds.max(0.0) / time_constant).exp();
-        self.level += (target - self.level) * amount;
+        self.level += (jaw_target - self.level) * amount;
+        let shape_amount = 1.0 - (-seconds.max(0.0) / 0.08).exp();
+        self.round += (round * target - self.round) * shape_amount;
+        self.wide += (wide * target - self.wide) * shape_amount;
         SpeechPose {
             jaw_open: self.level,
-            ..Default::default()
+            lip_round: self.round,
+            lip_wide: self.wide,
         }
     }
 }
@@ -147,7 +190,7 @@ impl Envelope {
 #[derive(Clone, Copy)]
 struct Packet {
     time: Instant,
-    rms: f32,
+    features: Features,
 }
 
 #[derive(Default)]
@@ -163,12 +206,23 @@ pub struct Signal {
 }
 
 impl Signal {
+    #[cfg(test)]
     fn push(&self, rms: f32, time: Instant) {
+        self.push_features(
+            Features {
+                rms,
+                formants: None,
+            },
+            time,
+        );
+    }
+
+    fn push_features(&self, features: Features, time: Instant) {
         let mut state = self.state.lock().unwrap();
         if state.packets.len() >= MAX_PACKETS {
             state.packets.pop_front();
         }
-        state.packets.push_back(Packet { time, rms });
+        state.packets.push_back(Packet { time, features });
         state.last_packet = Some(time);
     }
 
@@ -207,6 +261,10 @@ impl Reader {
     }
 
     pub fn sample(&mut self, now: Instant) -> f32 {
+        self.features(now).rms
+    }
+
+    pub fn features(&mut self, now: Instant) -> Features {
         let target = now.checked_sub(self.delay).unwrap_or(now);
         let mut state = self.signal.state.lock().unwrap();
         while state
@@ -220,7 +278,7 @@ impl Reader {
             .filter(|packet| {
                 target.saturating_duration_since(packet.time) < Duration::from_millis(250)
             })
-            .map_or(0.0, |packet| packet.rms)
+            .map_or(Features::default(), |packet| packet.features)
     }
 }
 
@@ -263,6 +321,7 @@ impl Capture {
             .spawn(move || {
                 let mut bytes = [0_u8; BLOCK_SAMPLES * 4];
                 let mut samples = [0_f32; BLOCK_SAMPLES];
+                let mut analyzer = Analyzer::default();
                 loop {
                     if let Err(error) = output.read_exact(&mut bytes) {
                         worker_signal.fail(if error.kind() == io::ErrorKind::UnexpectedEof {
@@ -275,7 +334,14 @@ impl Capture {
                     for (sample, chunk) in samples.iter_mut().zip(bytes.as_chunks::<4>().0) {
                         *sample = f32::from_ne_bytes(*chunk);
                     }
-                    worker_signal.push(rms(&samples), Instant::now());
+                    let formants = analyzer.analyze(&samples);
+                    worker_signal.push_features(
+                        Features {
+                            rms: rms(&samples),
+                            formants,
+                        },
+                        Instant::now(),
+                    );
                 }
             }) {
             Ok(worker) => worker,
@@ -376,6 +442,91 @@ mod tests {
         assert_eq!(first.state.lock().unwrap().packets.len(), MAX_PACKETS);
         assert_eq!(Reader::new(first, 0).sample(now), 0.4);
         assert_eq!(Reader::new(second, 0).sample(now), 0.0);
+    }
+
+    #[test]
+    fn delay_keeps_formants_and_volume_together_and_expires_both() {
+        let signal = Signal::default();
+        let other = Signal::default();
+        let now = Instant::now();
+        let first = Features {
+            rms: 0.2,
+            formants: Some(Formants {
+                first: 350.0,
+                second: 850.0,
+            }),
+        };
+        let second = Features {
+            rms: 0.1,
+            formants: Some(Formants {
+                first: 300.0,
+                second: 2400.0,
+            }),
+        };
+        signal.push_features(first, now);
+        signal.push_features(second, now + Duration::from_millis(10));
+        let mut reader = Reader::new(signal, 100);
+        assert_eq!(reader.features(now), Features::default());
+        assert_eq!(reader.features(now + Duration::from_millis(100)), first);
+        assert_eq!(reader.features(now + Duration::from_millis(110)), second);
+        assert_eq!(
+            reader.features(now + Duration::from_millis(400)),
+            Features::default()
+        );
+        assert_eq!(Reader::new(other, 0).features(now), Features::default());
+    }
+
+    #[test]
+    fn shapes_transition_smoothly_and_release_at_silence() {
+        let mut envelope = Envelope::default();
+        let round = Features {
+            rms: 0.1,
+            formants: Some(Formants {
+                first: 350.0,
+                second: 850.0,
+            }),
+        };
+        let wide = Features {
+            rms: 0.1,
+            formants: Some(Formants {
+                first: 300.0,
+                second: 2400.0,
+            }),
+        };
+        let previous = envelope.update_features(round, 8.0, 0.008, 1.0, 1.0);
+        assert!(previous.lip_round > 0.6 && previous.lip_wide == 0.0);
+        let next = envelope.update_features(wide, 8.0, 0.008, 1.0 / 30.0, 1.0);
+        assert!(next.lip_round > 0.0 && next.lip_round < previous.lip_round);
+        assert!(next.lip_wide > 0.0 && next.lip_wide < 0.4);
+        let silence =
+            envelope.update_features(Features { rms: 0.0, ..round }, 8.0, 0.008, 2.0, 1.0);
+        assert!(silence.jaw_open < 0.001 && silence.lip_round < 0.001 && silence.lip_wide < 0.001);
+        let fallback = envelope.update(0.1, 8.0, 0.008, 2.0);
+        assert!(fallback.jaw_open > previous.jaw_open);
+        assert!(fallback.lip_round < 0.001 && fallback.lip_wide < 0.001);
+    }
+
+    #[test]
+    fn all_shape_coefficients_are_frame_rate_independent() {
+        let features = Features {
+            rms: 0.1,
+            formants: Some(Formants {
+                first: 350.0,
+                second: 850.0,
+            }),
+        };
+        let mut poses = Vec::new();
+        for fps in [30, 120] {
+            let mut envelope = Envelope::default();
+            let mut pose = SpeechPose::default();
+            for _ in 0..fps {
+                pose = envelope.update_features(features, 8.0, 0.008, 1.0 / fps as f32, 1.0);
+            }
+            poses.push(pose);
+        }
+        assert!((poses[0].jaw_open - poses[1].jaw_open).abs() < 0.0001);
+        assert!((poses[0].lip_round - poses[1].lip_round).abs() < 0.0001);
+        assert!((poses[0].lip_wide - poses[1].lip_wide).abs() < 0.0001);
     }
 
     #[test]

@@ -11,8 +11,9 @@ OBS records the app window and the two audio channels.
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
   portraits: long black hair and an orange/navy top for host 1; shoulder-length
   brown hair with lighter strands and a patterned shirt for host 2.
-- Independent audio-driven mouth opening, with a noise threshold and smooth
-  attack/release. This version uses volume, not phoneme recognition.
+- Independent audio-driven mouth opening and vowel-like lip shapes, with a
+  noise threshold and smooth transitions. Local formant analysis approximates
+  open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
@@ -177,6 +178,46 @@ changes, restart with the new title. Routing changes use WirePlumber's
 Start the browser-audio script before Slofox and keep it running. If the script
 is restarted, restart Slofox too so its capture reconnects to the recreated sink.
 
+## Vowel-like mouth shapes
+
+Formant mode is enabled by default for both hosts. Launch with your usual
+audio/routing options; no extra model, API or download is needed. The demo
+cycles through open, wide and rounded shapes without capturing audio:
+
+```sh
+cargo run --locked -- --demo
+```
+
+Audio is low-pass filtered and downsampled from 48 to 16 kHz. Every 10 ms,
+an LPC spectral envelope estimates the first two resonances (F1/F2) from a
+32 ms Hamming window. Periodicity and peak plausibility checks reject uncertain
+frames; an estimate can be held for at most 50 ms to bridge brief gaps.
+F1 influences jaw opening and F2 influences lip width/rounding. Loudness still
+controls movement strength and closes the mouth below `--threshold`. Both lips,
+the mouth cavity and teeth move together with frame-rate-independent smoothing.
+Audio delays apply to volume and formants together.
+
+The overlay shows approximate vowel groups and raw F1/F2 frequencies, or
+`volume fallback` when resonances cannot be estimated. These are approximate
+visual cues, not recognized letters. Whispering, high-pitched voices, background
+music, consonants and noise can give uncertain or incorrect estimates. This
+version does not detect B/P/M lip closures or distinguish individual phonemes.
+
+If one voice consistently looks too open or wide, try a modest increase in
+its formant normalization scale (default 1.0; supported range 0.7–1.5):
+
+```sh
+cargo run --locked -- --browser-formant-scale 1.15 --microphone-formant-scale 1.0
+```
+
+The scales divide measured F1/F2 before mapping; they do not alter pitch, sound
+or the displayed raw frequencies. Tune with sustained A, E/I and O/U sounds.
+The previous animation remains available with `--mouth-mode volume`.
+
+The general formant-to-mouth approach is described by
+[Ishi et al., Interspeech 2012](https://www.isca-archive.org/interspeech_2012/ishi12_interspeech.html).
+Slofox uses its own simplified mapping, not the paper's complete method.
+
 ## Development
 
 ```sh
@@ -193,17 +234,18 @@ cargo test --locked --test pipewire -- --ignored
 ```
 
 It requires a running PipeWire session and creates two temporary null sinks
-and virtual browser/microphone nodes. It tests both sink-monitor and source capture.
+and virtual browser/microphone nodes. It tests both sink-monitor and source capture,
+including synthetic vowel features and separation of the two inputs.
 It is skipped in the normal test suite.
 
-`src/audio.rs` separates capture, timestamped buffering, RMS analysis and the
-smoothed `SpeechPose`. It reserves lip-rounding and lip-width coefficients for
-a future phoneme/viseme backend; this prototype only drives the jaw coefficient.
+`src/audio.rs` separates capture, timestamped feature buffering, RMS analysis
+and the smoothed `SpeechPose`. `src/formants.rs` implements local resonance
+analysis and the vowel-like mouth mapping without additional dependencies.
 `src/studio.rs` builds the replaceable avatar geometry and stage;
 `src/main.rs` connects analysis to animation, cameras and diagnostics.
 
-Future steps include rigged glTF models with mouth blend shapes, speech-derived
-visemes, more varied gestures, GUI device selection and native audio backends
+Future steps include rigged glTF models with mouth blend shapes, more accurate
+phoneme-derived visemes, more varied gestures, GUI device selection and native audio backends
 for other operating systems.
 
 Reference documentation: [Bevy](https://bevy.org/),
