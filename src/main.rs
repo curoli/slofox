@@ -15,7 +15,7 @@ use bevy::{
 };
 use clap::Parser;
 use slofox::{
-    audio::{self, Capture, Envelope, Features, Reader, SpeechPose},
+    audio::{self, Capture, Envelope, Features, Reader, ShapeSource, SpeechPose},
     config::{MouthMode, Options},
     formants::Formants,
     routing::{self, TabRouter},
@@ -262,20 +262,19 @@ fn update_audio(time: Res<Time>, mut session: ResMut<Session>) {
             features.formants = None;
             features.spectral = None;
         } else if features.rms > session.options.threshold {
-            let model = features.formants.map_or_else(
+            let description = features.selected_shape(scale).map_or_else(
                 || "volume fallback".to_owned(),
-                |formants| {
+                |(shape, source)| {
                     format!(
-                        "{} F1 {:.0} F2 {:.0} Hz",
-                        formants.label(scale),
-                        formants.first,
-                        formants.second
+                        "{} ({})",
+                        shape.label(),
+                        match source {
+                            ShapeSource::Formants => "LPC",
+                            ShapeSource::Spectrum => "spectrum",
+                        }
                     )
                 },
             );
-            let description = features
-                .spectral
-                .map_or(model, |spectral| format!("{} (spectrum)", spectral.label()));
             session.statuses[index].push_str(&format!(" / {description}"));
         }
         let threshold = session.options.threshold;

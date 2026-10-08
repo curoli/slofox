@@ -220,6 +220,19 @@ fn select_formants(candidates: &[Candidate]) -> Option<Formants> {
     })
 }
 
+fn reliable_formants(formants: Formants, candidates: &[Candidate]) -> bool {
+    [formants.first, formants.second]
+        .into_iter()
+        .all(|frequency| {
+            candidates.iter().any(|candidate| {
+                (candidate.frequency - frequency as f64).abs() < 0.1
+                    && candidate.bandwidth <= 200.0
+                    && candidate.bandwidth / candidate.frequency <= 0.5
+                    && candidate.strength >= 0.02
+            })
+        })
+}
+
 impl Formants {
     pub fn shape(self, scale: f32) -> (f32, f32, f32) {
         let first = self.first / scale;
@@ -262,6 +275,7 @@ pub struct Analyzer {
     spectral: Option<SpectralShape>,
     previous_sample: f64,
     frequency_scale: f64,
+    reliable: bool,
 }
 
 impl Default for Analyzer {
@@ -308,6 +322,7 @@ impl Default for Analyzer {
             spectral: None,
             previous_sample: 0.0,
             frequency_scale: 1.0,
+            reliable: false,
         }
     }
 }
@@ -326,6 +341,11 @@ impl Analyzer {
     pub fn spectral(&self) -> Option<SpectralShape> {
         self.spectral
     }
+
+    pub fn mouth_formants(&self) -> Option<Formants> {
+        self.last_formants
+            .filter(|_| self.reliable || self.spectral.is_none())
+    }
     pub fn diagnostics(&self) -> String {
         let candidates = self
             .candidates
@@ -339,8 +359,9 @@ impl Analyzer {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "{}; spectrum {}; poles [{}] (frequency/bandwidth/relative power)",
+            "{}; reliable LPC {}; spectrum {}; poles [{}] (frequency/bandwidth/relative power)",
             self.reason,
+            self.reliable,
             self.spectral.map_or("uncertain", SpectralShape::label),
             candidates
         )
@@ -363,6 +384,7 @@ impl Analyzer {
     fn estimate(&mut self, samples: &[f32]) -> Option<Formants> {
         self.candidates.clear();
         self.spectral = None;
+        self.reliable = false;
         self.reason = "warming up";
         for sample in samples {
             self.input[self.input_cursor] = if sample.is_finite() {
@@ -478,6 +500,8 @@ impl Analyzer {
                 }
             }));
         let formants = select_formants(&self.candidates);
+        self.reliable =
+            formants.is_some_and(|formants| reliable_formants(formants, &self.candidates));
         self.reason = if formants.is_some() {
             "accepted F1/F2"
         } else {
@@ -655,15 +679,18 @@ mod tests {
         let description = analyzer.diagnostics();
         assert!(description.contains("volume fallback"));
         assert!(description.contains("850Hz/BW650Hz/0.0010"));
-        assert!(
-            Analyzer::default()
-                .diagnostics()
-                .contains("waiting for audio; spectrum uncertain; poles []")
-        );
+        let initial = Analyzer::default().diagnostics();
+        assert!(initial.contains("waiting for audio"));
+        assert!(initial.contains("reliable LPC false"));
+        assert!(initial.contains("spectrum uncertain; poles []"));
     }
 
     fn vowel(first: f64, second: f64, pitch: f64) -> Vec<f32> {
-        let mut samples: Vec<f64> = (0..24_000)
+        vowel_samples(first, second, pitch, 24_000)
+    }
+
+    fn vowel_samples(first: f64, second: f64, pitch: f64, count: usize) -> Vec<f32> {
+        let mut samples: Vec<f64> = (0..count)
             .map(|index| {
                 if (index as f64 * pitch / 48_000.0).fract() < pitch / 48_000.0 {
                     1.0
@@ -692,6 +719,136 @@ mod tests {
             .into_iter()
             .map(|sample| (sample / peak * 0.2) as f32)
             .collect()
+    }
+
+    #[test]
+    fn clear_rounded_lpc_is_not_overridden_by_conflicting_fft_shapes() {
+        use crate::audio::{Envelope, Features, ShapeSource, rms};
+
+        let samples = vowel_samples(350.0, 850.0, 140.0, 48_000);
+        for amplitude in [1.0, 0.5] {
+            let mut analyzer = Analyzer::default();
+            let mut envelope = Envelope::default();
+            let mut fft_conflicts = 0;
+            let mut selected_round = 0;
+            let mut animated_round = 0;
+            for (index, original) in samples.chunks(480).enumerate() {
+                let block: Vec<_> = original.iter().map(|sample| sample * amplitude).collect();
+                let model = analyzer.analyze(&block);
+                let features = Features::analyzed(rms(&block), &analyzer);
+                let pose = envelope.update_features(features, 8.0, 0.008, 0.01, 1.0);
+                if index < 8 {
+                    continue;
+                }
+                let spectral = analyzer.spectral().expect("voiced harmonic signal");
+                assert!(
+                    [spectral.openness, spectral.round, spectral.wide]
+                        .into_iter()
+                        .all(|coefficient| (0.0..=1.0).contains(&coefficient))
+                );
+                fft_conflicts += usize::from(spectral.label() != "O/U-like");
+                assert_eq!(model.unwrap().label(1.0), "O/U-like");
+                let (shape, source) = features.selected_shape(1.0).unwrap();
+                assert_eq!(source, ShapeSource::Formants, "{}", analyzer.diagnostics());
+                selected_round += usize::from(shape.label() == "O/U-like");
+                animated_round += usize::from(
+                    pose.lip_round > 0.05
+                        && pose.lip_round > pose.jaw_open * 0.6
+                        && pose.lip_wide < 0.001,
+                );
+            }
+            assert!(
+                fft_conflicts > 0,
+                "the regression must exercise conflicting FFT evidence"
+            );
+            assert_eq!(selected_round, 92);
+            assert_eq!(animated_round, 92);
+        }
+    }
+
+    #[test]
+    fn combined_shapes_cover_vowels_across_pitch_and_level() {
+        use crate::audio::{Envelope, Features, rms};
+        for (first, second, label) in [
+            (800.0, 1200.0, "A-like"),
+            (300.0, 2400.0, "E/I-like"),
+            (350.0, 850.0, "O/U-like"),
+        ] {
+            for pitch in [100.0, 140.0, 180.0, 250.0] {
+                let samples = vowel_samples(first, second, pitch, 48_000);
+                for amplitude in [1.0, 0.5] {
+                    let mut analyzer = Analyzer::default();
+                    let mut envelope = Envelope::default();
+                    let mut selected = 0;
+                    let mut animated = 0;
+                    for (index, original) in samples.chunks(480).enumerate() {
+                        let block: Vec<_> =
+                            original.iter().map(|sample| sample * amplitude).collect();
+                        analyzer.analyze(&block);
+                        let features = Features::analyzed(rms(&block), &analyzer);
+                        let pose = envelope.update_features(features, 8.0, 0.008, 0.01, 1.0);
+                        if index < 8 {
+                            continue;
+                        }
+                        selected += usize::from(
+                            features
+                                .selected_shape(1.0)
+                                .is_some_and(|(shape, _)| shape.label() == label),
+                        );
+                        let appropriate = match label {
+                            "A-like" => {
+                                pose.jaw_open > 0.15 && pose.lip_round < pose.jaw_open * 0.4
+                            }
+                            "E/I-like" => pose.lip_wide > 0.05 && pose.lip_wide > pose.lip_round,
+                            _ => pose.lip_round > 0.05 && pose.lip_round > pose.lip_wide,
+                        };
+                        animated += usize::from(appropriate);
+                    }
+                    assert!(
+                        selected >= 83 && animated >= 83,
+                        "{first}/{second}, pitch {pitch}, amplitude {amplitude}: {selected}/92 selected, {animated}/92 animated"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reliability_requires_two_narrow_strong_fresh_resonances() {
+        let formants = Formants {
+            first: 350.0,
+            second: 850.0,
+        };
+        let mut candidates = [
+            Candidate {
+                frequency: 350.0,
+                bandwidth: 90.0,
+                strength: 1.0,
+            },
+            Candidate {
+                frequency: 850.0,
+                bandwidth: 120.0,
+                strength: 0.1,
+            },
+        ];
+        assert!(reliable_formants(formants, &candidates));
+        candidates[1].bandwidth = 650.0;
+        assert!(!reliable_formants(formants, &candidates));
+        candidates[1].bandwidth = 120.0;
+        candidates[1].strength = 0.01;
+        assert!(!reliable_formants(formants, &candidates));
+        let samples = vowel(350.0, 850.0, 140.0);
+        let mut analyzer = Analyzer::default();
+        for block in samples.chunks(480) {
+            analyzer.analyze(block);
+        }
+        assert!(analyzer.reliable);
+        analyzer.analyze(&[0.0; 480]);
+        for _ in 0..15 {
+            analyzer.analyze(&[0.0; 480]);
+        }
+        assert!(!analyzer.reliable);
+        assert_eq!(analyzer.mouth_formants(), None);
     }
 
     #[test]

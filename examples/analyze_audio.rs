@@ -1,4 +1,7 @@
-use slofox::{audio::rms, formants::Analyzer};
+use slofox::{
+    audio::{Features, rms},
+    formants::Analyzer,
+};
 use std::{env, fs};
 
 fn main() {
@@ -11,16 +14,15 @@ fn main() {
         .collect();
     let mut analyzer = Analyzer::default();
     for (index, block) in samples.chunks(480).enumerate() {
-        let formants = analyzer.analyze(block);
+        analyzer.analyze(block);
         if index % 10 == 0 {
             println!(
                 "{:.2}\t{:.4}\t{}\t{}",
                 index as f32 / 100.0,
                 rms(block),
-                analyzer.spectral().map_or_else(
-                    || formants.map_or("fallback", |formants| formants.label(1.0)),
-                    |spectral| spectral.label()
-                ),
+                Features::analyzed(rms(block), &analyzer)
+                    .selected_shape(1.0)
+                    .map_or("fallback", |(shape, _)| shape.label()),
                 analyzer.diagnostics()
             );
         }

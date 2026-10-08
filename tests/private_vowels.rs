@@ -32,20 +32,18 @@ fn recorded_vowels_drive_the_expected_mouth_at_normal_and_reduced_level() {
         let mut animated = [0; 5];
         for (index, original) in samples.chunks(480).enumerate() {
             let block: Vec<f32> = original.iter().map(|sample| sample * amplitude).collect();
-            let formants = analyzer.analyze(&block);
-            let spectral = analyzer.spectral();
-            let features = Features {
-                rms: rms(&block),
-                formants,
-                spectral,
-            };
+            analyzer.analyze(&block);
+            let features = Features::analyzed(rms(&block), &analyzer);
             let pose = envelope.update_features(features, 8.0, 0.008, 0.01, 1.0);
             let seconds = index as f32 / 100.0;
             for (position, &(start, end, label)) in intervals.iter().enumerate() {
                 if seconds >= start && seconds < end {
                     totals[position] += 1;
-                    correct[position] +=
-                        usize::from(spectral.is_some_and(|shape| shape.label() == label));
+                    correct[position] += usize::from(
+                        features
+                            .selected_shape(1.0)
+                            .is_some_and(|(shape, _)| shape.label() == label),
+                    );
                     let appropriate = match label {
                         "A-like" => pose.jaw_open > 0.15 && pose.lip_round < pose.jaw_open * 0.4,
                         "E/I-like" => pose.lip_wide > 0.05 && pose.lip_wide > pose.lip_round,

@@ -202,17 +202,26 @@ Resonances are extracted from the LPC poles, including close O/U formants that
 can merge into a single spectral peak. Periodicity, bandwidth and spectral
 strength checks reject uncertain frames; an estimate can be held for at most
 50 ms to bridge brief gaps.
-When spectral evidence is unavailable, F1 influences jaw opening and F2 lip
-width/rounding; if both analyses are uncertain, volume alone drives the jaw.
+FFT does not unconditionally override LPC. A fresh, accepted F1/F2 pair takes
+priority when both poles have bandwidth at most 200 Hz, bandwidth/frequency
+ratio at most 0.5 and at least 2% relative spectral power. This conservative
+quality heuristic preserves clear rounded LPC vowels whose strong F2 can make
+the broad FFT middle band look A-like; it is not a calibrated probability.
+Otherwise, FFT colour is used when available. With no FFT evidence, accepted
+LPC (including the bounded 50 ms hold) remains a fallback. F1 influences jaw
+opening and F2 lip width/rounding; if neither is available, volume drives the jaw.
 Loudness still
 controls movement strength and closes the mouth below `--threshold`. Both lips,
 the mouth cavity and teeth move together with frame-rate-independent smoothing.
 Audio delays apply to volume, spectral shape and formants together.
 
 The overlay shows the mouth-driving approximate vowel group with `(spectrum)`
-when FFT colour is used. Otherwise it shows the LPC group and F1/F2 frequencies,
-or `volume fallback`. The diagnostic log reports both spectral and LPC results;
-they may disagree, and the spectral shape then drives animation. These are approximate
+or `(LPC)`, or `volume fallback`. The diagnostic log reports raw spectral and
+LPC results, frequencies and the LPC reliability flag; they may disagree.
+Capture, animation, overlay and the offline example share the same selection
+path through `Features::analyzed` and `Features::selected_shape`: raw LPC
+estimates remain available from `Analyzer::analyze`, while captured features
+contain only LPC evidence eligible for mouth selection. These are approximate
 visual cues, not recognized letters. Whispering, high-pitched voices, background
 music, consonants and noise can give uncertain or incorrect estimates. This
 version does not detect B/P/M lip closures or distinguish individual phonemes.
@@ -279,7 +288,10 @@ SLOFOX_VOWELS_F32=/tmp/vowels.f32 cargo test --locked --test private_vowels -- -
 
 The reference recording is deliberately not distributed or committed. Ordinary
 tests do not open audio files; synthetic spectral, normalization, silence and
-delay tests remain self-contained. Passing one voice reference does not establish
+delay tests remain self-contained. The synthetic 350/850 Hz, 140 Hz pitch
+regression explicitly checks conflicting raw FFT evidence, selected source,
+and smoothed mouth coefficients; a wider A/I/O matrix covers four pitches and
+two amplitudes. Passing one voice reference does not establish
 accuracy for other voices or ordinary conversational phonemes.
 
 ```sh

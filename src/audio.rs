@@ -20,6 +20,38 @@ pub struct Features {
     pub spectral: Option<SpectralShape>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeSource {
+    Formants,
+    Spectrum,
+}
+
+impl Features {
+    pub fn analyzed(rms: f32, analyzer: &Analyzer) -> Self {
+        Self {
+            rms,
+            formants: analyzer.mouth_formants(),
+            spectral: analyzer.spectral(),
+        }
+    }
+
+    pub fn selected_shape(self, scale: f32) -> Option<(SpectralShape, ShapeSource)> {
+        self.formants
+            .map(|formants| {
+                let (openness, round, wide) = formants.shape(scale);
+                (
+                    SpectralShape {
+                        openness,
+                        round,
+                        wide,
+                    },
+                    ShapeSource::Formants,
+                )
+            })
+            .or_else(|| self.spectral.map(|shape| (shape, ShapeSource::Spectrum)))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub serial: String,
@@ -168,14 +200,11 @@ impl Envelope {
             0.0
         };
         let (open, round, wide) = if target > 0.0 {
-            features.spectral.map_or_else(
-                || {
-                    features
-                        .formants
-                        .map_or((1.0, 0.0, 0.0), |formants| formants.shape(scale))
-                },
-                |spectral| (spectral.openness, spectral.round, spectral.wide),
-            )
+            features
+                .selected_shape(scale)
+                .map_or((1.0, 0.0, 0.0), |(shape, _)| {
+                    (shape.openness, shape.round, shape.wide)
+                })
         } else {
             (1.0, 0.0, 0.0)
         };
@@ -363,7 +392,7 @@ impl Capture {
                     for (sample, chunk) in samples.iter_mut().zip(bytes.as_chunks::<4>().0) {
                         *sample = f32::from_ne_bytes(*chunk);
                     }
-                    let formants = analyzer.analyze(&samples);
+                    analyzer.analyze(&samples);
                     let level = rms(&samples);
                     if diagnostics && last_diagnostic.elapsed() >= Duration::from_secs(1) {
                         eprintln!(
@@ -372,14 +401,8 @@ impl Capture {
                         );
                         last_diagnostic = Instant::now();
                     }
-                    worker_signal.push_features(
-                        Features {
-                            rms: level,
-                            formants,
-                            spectral: analyzer.spectral(),
-                        },
-                        Instant::now(),
-                    );
+                    worker_signal
+                        .push_features(Features::analyzed(level, &analyzer), Instant::now());
                 }
             }) {
             Ok(worker) => worker,
@@ -521,13 +544,10 @@ mod tests {
     }
 
     #[test]
-    fn spectral_evidence_overrides_a_conflicting_lpc_model_but_respects_silence() {
+    fn spectral_fallback_drives_the_mouth_without_eligible_lpc_and_respects_silence() {
         let features = Features {
             rms: 0.03,
-            formants: Some(Formants {
-                first: 432.0,
-                second: 3038.0,
-            }),
+            formants: None,
             spectral: Some(SpectralShape {
                 openness: 0.0,
                 round: 1.0,
