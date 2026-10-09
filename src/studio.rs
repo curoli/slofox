@@ -1,11 +1,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use bevy::{
-    asset::RenderAssetUsages,
-    mesh::{Indices, PrimitiveTopology},
-    prelude::*,
-    render::view::NoIndirectDrawing,
-};
+use bevy::{prelude::*, render::view::NoIndirectDrawing};
+
+mod portrait;
 
 #[derive(Component)]
 pub struct Host {
@@ -107,7 +104,6 @@ struct Palette {
     hair: Handle<StandardMaterial>,
     streak: Handle<StandardMaterial>,
     shirt: Handle<StandardMaterial>,
-    accent: Handle<StandardMaterial>,
     lips: Handle<StandardMaterial>,
     white: Handle<StandardMaterial>,
     iris: Handle<StandardMaterial>,
@@ -182,48 +178,6 @@ fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind
         .insert(AnimatedPart { host, kind, rest });
 }
 
-fn hair_cap() -> Mesh {
-    let rings = 12;
-    let segments = 32;
-    let mut positions = Vec::new();
-    let mut normals = Vec::new();
-    let mut indices = Vec::new();
-    for ring in 0..=rings {
-        for segment in 0..=segments {
-            let angle = segment as f32 / segments as f32 * 2.0 * PI;
-            let front = angle.cos().max(0.0);
-            let extent = 1.85 - front.powi(4) * 0.75;
-            let polar = (ring as f32 / rings as f32 * extent).max(0.001);
-            let normal = Vec3::new(
-                polar.sin() * angle.sin(),
-                polar.cos(),
-                polar.sin() * angle.cos(),
-            );
-            positions.push(normal.to_array());
-            normals.push(normal.to_array());
-            if ring < rings && segment < segments {
-                let current = ring * (segments + 1) + segment;
-                let next = current + segments + 1;
-                indices.extend_from_slice(&[
-                    current,
-                    next,
-                    current + 1,
-                    current + 1,
-                    next,
-                    next + 1,
-                ]);
-            }
-        }
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_indices(Indices::U32(indices))
-}
-
 fn host(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -231,6 +185,7 @@ fn host(
     palette: &Palette,
     index: usize,
 ) {
+    let portrait = portrait::Portrait::for_host(index);
     let root = commands
         .spawn((
             Host { index },
@@ -238,14 +193,33 @@ fn host(
             Visibility::default(),
         ))
         .id();
-    ellipsoid(
+    let garment = meshes.add(portrait::garment(index));
+    object(
         commands,
-        geometry,
-        root,
-        &palette.shirt,
-        Vec3::new(0.0, 0.24, 0.0),
-        Vec3::new(0.30, 0.38, 0.17),
+        Some(root),
+        &garment,
+        &palette.white,
+        Transform::default(),
     );
+    if index == 0 {
+        ellipsoid(
+            commands,
+            geometry,
+            root,
+            &palette.skin,
+            Vec3::new(0.0, 0.52, -0.012),
+            Vec3::new(0.27, 0.12, 0.135),
+        );
+    } else {
+        ellipsoid(
+            commands,
+            geometry,
+            root,
+            &palette.skin,
+            Vec3::new(0.0, 0.55, 0.017),
+            Vec3::new(0.14, 0.18, 0.15),
+        );
+    }
     ellipsoid(
         commands,
         geometry,
@@ -259,28 +233,15 @@ fn host(
         Vec3::new(0.31, 0.13, 0.14),
     );
     if index == 1 {
-        ellipsoid(
-            commands,
-            geometry,
-            root,
-            &palette.shirt,
-            Vec3::new(0.0, 0.49, 0.02),
-            Vec3::new(0.30, 0.16, 0.16),
-        );
-        for row in 0..6 {
-            for column in 0..7 {
-                let horizontal = (column as f32 - 3.0) * 0.068;
-                let vertical = 0.1 + row as f32 * 0.075;
-                let front = 0.165 * (1.0 - (horizontal / 0.32).powi(2)).sqrt();
-                ellipsoid(
-                    commands,
-                    geometry,
-                    root,
-                    &palette.accent,
-                    Vec3::new(horizontal, vertical, front),
-                    Vec3::new(0.018, 0.023, 0.005),
-                );
-            }
+        for side in [-1.0, 1.0] {
+            let collar = meshes.add(portrait::collar(side));
+            object(
+                commands,
+                Some(root),
+                &collar,
+                &palette.shirt,
+                Transform::default(),
+            );
         }
         for button in 0..4 {
             ellipsoid(
@@ -290,18 +251,6 @@ fn host(
                 &palette.white,
                 Vec3::new(0.0, 0.15 + button as f32 * 0.1, 0.175),
                 Vec3::splat(0.008),
-            );
-        }
-    } else {
-        for column in 0..9 {
-            let horizontal = (column as f32 - 4.0) * 0.06;
-            ellipsoid(
-                commands,
-                geometry,
-                root,
-                &palette.accent,
-                Vec3::new(horizontal, 0.38, 0.13),
-                Vec3::new(0.012, 0.13, 0.012),
             );
         }
     }
@@ -318,21 +267,13 @@ fn host(
     let head = commands.spawn((head_rest, Visibility::default())).id();
     commands.entity(root).add_child(head);
     animated(commands, head, index, PartKind::Head, head_rest);
-    ellipsoid(
+    let face = meshes.add(portrait::face(index));
+    object(
         commands,
-        geometry,
-        head,
+        Some(head),
+        &face,
         &palette.skin,
-        Vec3::new(0.0, 0.255, 0.0),
-        Vec3::new(0.183, 0.257, 0.17),
-    );
-    ellipsoid(
-        commands,
-        geometry,
-        head,
-        &palette.skin,
-        Vec3::new(0.0, 0.105, 0.026),
-        Vec3::new(0.126, 0.105, 0.124),
+        Transform::default(),
     );
     for side in [-1.0, 1.0] {
         ellipsoid(
@@ -343,7 +284,9 @@ fn host(
             Vec3::new(side * 0.18, 0.24, -0.01),
             Vec3::new(0.027, 0.049, 0.02),
         );
-        let eye_rest = Transform::from_xyz(side * 0.071, 0.285, 0.153);
+        let eye_rest = Transform::from_xyz(side * 0.070, portrait.eye_y, 0.161).with_rotation(
+            Quat::from_rotation_z(side * if index == 0 { 0.10 } else { -0.04 }),
+        );
         let eye = commands.spawn((eye_rest, Visibility::default())).id();
         commands.entity(head).add_child(eye);
         animated(commands, eye, index, PartKind::Eye, eye_rest);
@@ -353,61 +296,74 @@ fn host(
             eye,
             &palette.white,
             Vec3::ZERO,
-            Vec3::new(0.038, 0.018, 0.014),
+            Vec3::new(portrait.eye_width, portrait.eye_height, 0.009),
         );
         ellipsoid(
             commands,
             geometry,
             eye,
             &palette.iris,
-            Vec3::new(-side * 0.002, 0.0, 0.012),
-            Vec3::new(0.014, 0.014, 0.007),
+            Vec3::new(-side * 0.002, 0.0, 0.008),
+            Vec3::new(0.012, portrait.eye_height * 0.92, 0.005),
         );
         ellipsoid(
             commands,
             geometry,
             eye,
             &palette.dark,
-            Vec3::new(-side * 0.002, 0.0, 0.017),
-            Vec3::new(0.007, 0.01, 0.005),
+            Vec3::new(-side * 0.002, 0.0, 0.012),
+            Vec3::new(0.006, portrait.eye_height * 0.78, 0.003),
         );
         ellipsoid(
             commands,
             geometry,
             eye,
             &palette.white,
-            Vec3::new(-0.005, 0.006, 0.022),
-            Vec3::splat(0.003),
+            Vec3::new(-0.004, 0.004, 0.016),
+            Vec3::splat(0.002),
         );
-        let brow = ellipsoid(
-            commands,
-            geometry,
-            head,
-            &palette.hair,
-            Vec3::new(side * 0.072, 0.329, 0.151),
-            Vec3::new(0.046, 0.007, 0.009),
-        );
-        commands.entity(brow).insert(
-            Transform::from_xyz(side * 0.072, 0.329, 0.151)
-                .with_scale(Vec3::new(0.046, 0.007, 0.009))
-                .with_rotation(Quat::from_rotation_z(side * 0.10)),
-        );
+        for segment in 0..5 {
+            let progress = segment as f32 / 5.0;
+            let next = (segment + 1) as f32 / 5.0;
+            let point = |amount: f32| {
+                Vec3::new(
+                    side * (0.031 + amount * 0.080),
+                    portrait.eye_y + 0.034 + (amount * PI).sin() * 0.009,
+                    0.165 - amount * 0.014,
+                )
+            };
+            object(
+                commands,
+                Some(head),
+                &geometry.sphere,
+                &palette.hair,
+                limb_transform(
+                    point(progress),
+                    point(next),
+                    if index == 0 { 0.0035 } else { 0.0045 },
+                ),
+            );
+        }
     }
     ellipsoid(
         commands,
         geometry,
         head,
         &palette.skin,
-        Vec3::new(0.0, 0.246, 0.164),
-        Vec3::new(0.024, 0.053, 0.026),
+        Vec3::new(0.0, 0.250, 0.168),
+        Vec3::new(if index == 0 { 0.018 } else { 0.022 }, 0.060, 0.023),
     );
     ellipsoid(
         commands,
         geometry,
         head,
         &palette.skin,
-        Vec3::new(0.0, 0.212, 0.18),
-        Vec3::new(0.035, 0.02, 0.027),
+        Vec3::new(0.0, 0.209, if index == 0 { 0.184 } else { 0.193 }),
+        Vec3::new(
+            portrait.nose_width,
+            0.019,
+            if index == 0 { 0.027 } else { 0.034 },
+        ),
     );
     for side in [-1.0, 1.0] {
         ellipsoid(
@@ -420,8 +376,12 @@ fn host(
         );
     }
 
-    let mouth_rest =
-        Transform::from_xyz(0.0, 0.147, 0.159).with_scale(Vec3::new(0.059, 0.005, 0.013));
+    let smile = meshes.add(portrait::smile(index));
+    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, 0.162).with_scale(Vec3::new(
+        portrait.mouth_width,
+        0.005,
+        0.013,
+    ));
     let mouth = object(
         commands,
         Some(head),
@@ -430,27 +390,19 @@ fn host(
         mouth_rest,
     );
     animated(commands, mouth, index, PartKind::Mouth, mouth_rest);
-    let upper_rest =
-        Transform::from_xyz(0.0, 0.155, 0.167).with_scale(Vec3::new(0.061, 0.008, 0.008));
-    let upper_lip = object(
-        commands,
-        Some(head),
-        &geometry.sphere,
-        &palette.lips,
-        upper_rest,
-    );
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.008, 0.171)
+        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
+    let upper_lip = object(commands, Some(head), &smile, &palette.lips, upper_rest);
     animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
-    let lip_rest = Transform::from_xyz(0.0, 0.139, 0.17).with_scale(Vec3::new(0.058, 0.007, 0.008));
-    let lower_lip = object(
-        commands,
-        Some(head),
-        &geometry.sphere,
-        &palette.lips,
-        lip_rest,
-    );
+    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.008, 0.173).with_scale(Vec3::new(
+        portrait.mouth_width - 0.001,
+        0.007,
+        0.008,
+    ));
+    let lower_lip = object(commands, Some(head), &smile, &palette.lips, lip_rest);
     animated(commands, lower_lip, index, PartKind::LowerLip, lip_rest);
-    let teeth_rest =
-        Transform::from_xyz(0.0, 0.15, 0.174).with_scale(Vec3::new(0.043, 0.004, 0.004));
+    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.003, 0.176)
+        .with_scale(Vec3::new(portrait.mouth_width * 0.73, 0.004, 0.004));
     let teeth = object(
         commands,
         Some(head),
@@ -460,46 +412,62 @@ fn host(
     );
     animated(commands, teeth, index, PartKind::Teeth, teeth_rest);
 
-    let cap = meshes.add(hair_cap());
+    for segment in 0..8 {
+        let start_polar = 0.12 + segment as f32 * 0.105;
+        let end_polar = start_polar + 0.105;
+        let radial = (1.0 - (portrait.hair_part / 0.205).powi(2)).sqrt();
+        let start = Vec3::new(
+            portrait.hair_part,
+            0.264 + 0.282 * radial * start_polar.cos(),
+            0.209 * radial * start_polar.sin(),
+        );
+        let end = Vec3::new(
+            portrait.hair_part,
+            0.264 + 0.282 * radial * end_polar.cos(),
+            0.209 * radial * end_polar.sin(),
+        );
+        object(
+            commands,
+            Some(head),
+            &geometry.sphere,
+            &palette.streak,
+            limb_transform(start, end, 0.0018),
+        );
+    }
+    let cap = meshes.add(portrait::hair_cap(index));
     object(
         commands,
         Some(head),
         &cap,
         &palette.hair,
-        Transform::from_xyz(0.0, 0.264, -0.005).with_scale(Vec3::new(0.196, 0.263, 0.184)),
+        Transform::default(),
     );
     ellipsoid(
         commands,
         geometry,
         head,
         &palette.hair,
-        Vec3::new(0.0, 0.11, -0.095),
-        Vec3::new(0.208, if index == 0 { 0.40 } else { 0.30 }, 0.105),
+        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.16 }, -0.10),
+        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.24 }, 0.10),
     );
     for side in [-1.0, 1.0] {
-        for lock in 0..4 {
-            let horizontal = side * (0.178 + lock as f32 * 0.013);
-            let vertical = if index == 0 { 0.055 } else { 0.14 };
-            ellipsoid(
+        for lock in 0..5 {
+            let hair = meshes.add(portrait::hair_lock(index, side, lock, false));
+            object(
                 commands,
-                geometry,
-                head,
+                Some(head),
+                &hair,
                 &palette.hair,
-                Vec3::new(horizontal, vertical, -0.038 - lock as f32 * 0.024),
-                Vec3::new(0.04, if index == 0 { 0.34 } else { 0.25 }, 0.035),
+                Transform::default(),
             );
-            if index == 1 && lock % 2 == 0 {
-                ellipsoid(
+            if lock % 2 == 0 {
+                let streak = meshes.add(portrait::hair_lock(index, side, lock, true));
+                object(
                     commands,
-                    geometry,
-                    head,
+                    Some(head),
+                    &streak,
                     &palette.streak,
-                    Vec3::new(
-                        horizontal + side * 0.008,
-                        vertical,
-                        -0.015 - lock as f32 * 0.024,
-                    ),
-                    Vec3::new(0.008, 0.21, 0.009),
+                    Transform::default(),
                 );
             }
         }
@@ -664,11 +632,10 @@ pub fn setup(
     for index in 0..2 {
         let palette = if index == 0 {
             Palette {
-                skin: matte(&mut materials, Color::srgb_u8(192, 133, 87)),
+                skin: matte(&mut materials, Color::srgb_u8(190, 132, 91)),
                 hair: matte(&mut materials, Color::srgb_u8(18, 22, 23)),
-                streak: matte(&mut materials, Color::srgb_u8(36, 38, 38)),
+                streak: matte(&mut materials, Color::srgb_u8(30, 31, 30)),
                 shirt: matte(&mut materials, Color::srgb_u8(41, 55, 63)),
-                accent: matte(&mut materials, Color::srgb_u8(164, 104, 48)),
                 lips: matte(&mut materials, Color::srgb_u8(143, 72, 59)),
                 iris: matte(&mut materials, Color::srgb_u8(50, 42, 25)),
                 white: white.clone(),
@@ -679,9 +646,8 @@ pub fn setup(
                 skin: matte(&mut materials, Color::srgb_u8(220, 167, 139)),
                 hair: matte(&mut materials, Color::srgb_u8(70, 53, 41)),
                 streak: matte(&mut materials, Color::srgb_u8(123, 106, 86)),
-                shirt: matte(&mut materials, Color::srgb_u8(100, 49, 51)),
-                accent: matte(&mut materials, Color::srgb_u8(187, 155, 116)),
-                lips: matte(&mut materials, Color::srgb_u8(159, 91, 80)),
+                shirt: matte(&mut materials, Color::srgb_u8(166, 141, 111)),
+                lips: matte(&mut materials, Color::srgb_u8(147, 94, 81)),
                 iris: matte(&mut materials, Color::srgb_u8(77, 66, 44)),
                 white: white.clone(),
                 dark: dark.clone(),
