@@ -9,8 +9,10 @@ OBS records the app window and the two audio channels.
 ## Prototype
 
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
-  portraits: long black hair and an orange/navy top for host 1; shoulder-length
-  brown hair with lighter strands and a patterned shirt for host 2.
+  portraits, with individual cheek/jaw contours, eyes, brows, noses and smiles:
+  long, parted black hair and a strapless orange/navy patterned top for host 1;
+  shoulder-length, wavy brown hair with lighter strands and a beige patterned
+  collared shirt with muted red/green accents for host 2.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
@@ -25,7 +27,8 @@ OBS records the app window and the two audio channels.
 
 The avatars are initial stylized interpretations, not detailed likenesses.
 Their geometry is generated locally; no portrait files or external art assets
-are bundled. Live audio capture currently requires Linux and PipeWire.
+are bundled. Clothing patterns are vertex colors on the garment meshes, not
+floating ornaments or large textures. Live audio capture currently requires Linux and PipeWire.
 The renderer and demo use Bevy's platform-independent APIs; Windows/macOS
 builds and audio backends have not been tested yet.
 
