@@ -9,10 +9,13 @@ OBS records the app window and the two audio channels.
 ## Prototype
 
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
-  portraits, with individual cheek/jaw contours, eyes, brows, noses and smiles:
+  portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
+  with blinking eyelids, individual brows and nose profiles, and smiles:
   long, parted black hair and a strapless orange/navy patterned top for host 1;
   shoulder-length, wavy brown hair with lighter strands and a beige patterned
   collared shirt with muted red/green accents for host 2.
+  Host 1 retains a small tooth-showing smile at rest; speech still controls
+  mouth opening and lip shapes independently for both hosts.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
