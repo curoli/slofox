@@ -362,7 +362,11 @@ fn animate_parts(
                 transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
-                transform.scale.y *= pose.jaw_open.clamp(0.01, 0.6);
+                transform.scale.y *= if part.host == 0 {
+                    0.35 + pose.jaw_open.clamp(0.0, 0.6)
+                } else {
+                    pose.jaw_open.clamp(0.01, 0.6)
+                };
                 transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
             }
         }
