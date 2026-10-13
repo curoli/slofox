@@ -27,6 +27,7 @@ OBS records the app window and the two audio channels.
 - A diagnostic overlay showing both audio levels and capture status, which can
   be hidden for recording. Rendering continues while the browser has focus.
 - A silent demo mode that does not access the microphone or browser audio.
+  `--portrait-preview` frames the faces closely for reference comparison.
 
 The avatars are initial stylized interpretations, not detailed likenesses.
 Their geometry is generated locally; no portrait files or external art assets
@@ -34,6 +35,31 @@ are bundled. Clothing patterns are vertex colors on the garment meshes, not
 floating ornaments or large textures. Live audio capture currently requires Linux and PipeWire.
 The renderer and demo use Bevy's platform-independent APIs; Windows/macOS
 builds and audio backends have not been tested yet.
+
+### Authored head geometry
+
+Each head now has its own hand-authored control cage in
+`assets/avatars/host-1-head.json` and `assets/avatars/host-2-head.json`.
+These are manual, reference-guided interpretations, not scans or a claim of
+exact likeness. The first head has fuller oval cheeks and a broader tooth-showing
+smile; the second has a longer face, higher forehead and stronger nose bridge.
+The nose is part of the closed head surface rather than a separate overlay.
+Eyes, brows and animated lips are positioned from that same surface.
+
+Each section stores `[height, half_width, back_depth, front_depths]` in local
+head coordinates. `lateral_coordinates` specifies the normalized horizontal
+positions of the front depths, from the center to the temple. Smooth interpolation
+preserves continuous surface slopes between authored landmarks. The data is
+embedded at compile time, so editing it requires rebuilding but running the app
+does not depend on the working directory or a network connection.
+
+For a close comparison without audio capture:
+
+```sh
+cargo run --locked -- --demo --clean --portrait-preview
+```
+
+![Portrait comparison view](docs/portrait-preview.png)
 
 ## Build and demo
 

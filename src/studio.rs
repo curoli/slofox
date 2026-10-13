@@ -3,6 +3,9 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use bevy::{prelude::*, render::view::NoIndirectDrawing};
 
 mod portrait;
+mod sculpt;
+
+pub use portrait::tooth_visibility;
 
 #[derive(Component)]
 pub struct Host {
@@ -284,9 +287,9 @@ fn host(
             Vec3::new(0.027, 0.049, 0.02),
         );
         let eye_rest = Transform::from_xyz(
-            side * 0.072,
+            side * portrait.eye_spacing,
             portrait.eye_y,
-            portrait::face_front(index, side * 0.072, portrait.eye_y) + 0.003,
+            portrait::face_front(index, side * portrait.eye_spacing, portrait.eye_y) + 0.004,
         )
         .with_rotation(Quat::from_rotation_z(
             side * if index == 0 { 0.10 } else { -0.04 },
@@ -322,7 +325,11 @@ fn host(
             eye,
             &palette.iris,
             Vec3::new(-side * 0.002, 0.0, 0.008),
-            Vec3::new(0.012, portrait.eye_height * 0.92, 0.005),
+            Vec3::new(
+                if index == 0 { 0.016 } else { 0.014 },
+                portrait.eye_height * 0.92,
+                0.005,
+            ),
         );
         ellipsoid(
             commands,
@@ -345,9 +352,13 @@ fn host(
             let next = (segment + 1) as f32 / 5.0;
             let point = |amount: f32| {
                 Vec3::new(
-                    side * (0.031 + amount * 0.080),
+                    side * (portrait.eye_spacing - 0.040 + amount * 0.080),
                     portrait.eye_y + 0.034 + (amount * PI).sin() * 0.009,
-                    0.165 - amount * 0.014,
+                    portrait::face_front(
+                        index,
+                        side * (portrait.eye_spacing - 0.040 + amount * 0.080),
+                        portrait.eye_y + 0.034 + (amount * PI).sin() * 0.009,
+                    ) + 0.002,
                 )
             };
             object(
@@ -363,14 +374,6 @@ fn host(
             );
         }
     }
-    let nose = meshes.add(portrait::nose(index));
-    object(
-        commands,
-        Some(head),
-        &nose,
-        &palette.skin,
-        Transform::default(),
-    );
     for side in [-1.0, 1.0] {
         ellipsoid(
             commands,
@@ -380,19 +383,20 @@ fn host(
             Vec3::new(
                 side * portrait.nose_width * 0.57,
                 0.193,
-                portrait::face_front(index, side * portrait.nose_width * 0.57, 0.193)
-                    + if index == 0 { 0.027 } else { 0.033 },
+                portrait::face_front(index, side * portrait.nose_width * 0.57, 0.193) + 0.001,
             ),
             Vec3::new(0.006, 0.0025, 0.002),
         );
     }
 
     let smile = meshes.add(portrait::smile(index));
-    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, 0.162).with_scale(Vec3::new(
-        portrait.mouth_width,
-        if index == 0 { 0.009 } else { 0.005 },
-        0.013,
-    ));
+    let mouth_depth = portrait::face_front(index, 0.0, portrait.mouth_y);
+    let mouth_rest =
+        Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002).with_scale(Vec3::new(
+            portrait.mouth_width,
+            if index == 0 { 0.015 } else { 0.005 },
+            0.013,
+        ));
     let mouth = object(
         commands,
         Some(head),
@@ -401,28 +405,33 @@ fn host(
         mouth_rest,
     );
     animated(commands, mouth, index, PartKind::Mouth, mouth_rest);
-    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.008, 0.171)
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.008, mouth_depth + 0.009)
         .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
     let upper_lip = object(commands, Some(head), &smile, &palette.lips, upper_rest);
     animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
     let lip_rest = Transform::from_xyz(
         0.0,
-        portrait.mouth_y - if index == 0 { 0.015 } else { 0.008 },
-        0.173,
+        portrait.mouth_y - if index == 0 { 0.019 } else { 0.008 },
+        mouth_depth + 0.011,
     )
     .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
     let lower_lip = object(commands, Some(head), &smile, &palette.lips, lip_rest);
     animated(commands, lower_lip, index, PartKind::LowerLip, lip_rest);
-    let teeth_rest =
-        Transform::from_xyz(0.0, portrait.mouth_y + 0.003, 0.176).with_scale(Vec3::new(
-            portrait.mouth_width * 0.73,
-            if index == 0 { 0.008 } else { 0.004 },
-            0.004,
-        ));
+    let teeth_rest = Transform::from_xyz(
+        0.0,
+        portrait.mouth_y + if index == 0 { 0.006 } else { 0.003 },
+        mouth_depth + 0.014,
+    )
+    .with_scale(Vec3::new(
+        portrait.mouth_width * if index == 0 { 0.90 } else { 0.73 },
+        if index == 0 { 0.016 } else { 0.004 },
+        0.004,
+    ));
+    let tooth_shape = meshes.add(portrait::teeth());
     let teeth = object(
         commands,
         Some(head),
-        &geometry.sphere,
+        &tooth_shape,
         &palette.white,
         teeth_rest,
     );
@@ -463,8 +472,8 @@ fn host(
         geometry,
         head,
         &palette.hair,
-        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.16 }, -0.10),
-        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.24 }, 0.10),
+        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.07 }, -0.10),
+        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.30 }, 0.10),
     );
     for side in [-1.0, 1.0] {
         for lock in 0..5 {

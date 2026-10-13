@@ -362,11 +362,7 @@ fn animate_parts(
                 transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
-                transform.scale.y *= if part.host == 0 {
-                    0.35 + pose.jaw_open.clamp(0.0, 0.6)
-                } else {
-                    pose.jaw_open.clamp(0.01, 0.6)
-                };
+                transform.scale.y *= studio::tooth_visibility(part.host, pose.jaw_open);
                 transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
             }
         }
@@ -381,10 +377,18 @@ fn move_camera(
     if session.auto_camera {
         session.camera = (time.elapsed_secs() / 14.0) as usize % 3;
     }
-    let target = Vec3::new(0.0, 1.44, 0.0);
-    let position = match session.camera {
-        1 => Vec3::new(-2.3, 2.05, 3.7),
-        2 => Vec3::new(2.3, 2.05, 3.7),
+    let portrait = session.options.portrait_preview;
+    let target = if portrait {
+        Vec3::new(0.0, 1.73, 0.0)
+    } else {
+        Vec3::new(0.0, 1.44, 0.0)
+    };
+    let position = match (portrait, session.camera) {
+        (true, 1) => Vec3::new(-1.25, 1.82, 2.20),
+        (true, 2) => Vec3::new(1.25, 1.82, 2.20),
+        (true, _) => Vec3::new(0.0, 1.82, 2.20),
+        (false, 1) => Vec3::new(-2.3, 2.05, 3.7),
+        (false, 2) => Vec3::new(2.3, 2.05, 3.7),
         _ => Vec3::new(0.0, 2.12, 4.25),
     };
     for mut transform in &mut cameras {
