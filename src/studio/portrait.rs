@@ -255,6 +255,8 @@ pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh 
     indexed_surface(positions, indices)
 }
 
+pub const TOOTH_TOP: f32 = 0.91 * (1.0 - 0.12 * 0.1175);
+
 pub fn teeth() -> Mesh {
     let outline = [
         Vec2::new(-0.099, 0.91),

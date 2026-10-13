@@ -362,8 +362,13 @@ fn animate_parts(
                 transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
-                transform.scale.y *= studio::tooth_visibility(part.host, pose.jaw_open);
-                transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
+                *transform = studio::teeth_pose(
+                    part.host,
+                    part.rest,
+                    pose.jaw_open,
+                    pose.lip_round,
+                    pose.lip_wide,
+                );
             }
         }
     }

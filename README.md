@@ -45,6 +45,8 @@ exact likeness. The first head has fuller oval cheeks and a broader tooth-showin
 smile; the second has a longer face, higher forehead and stronger nose bridge.
 The nose is part of the closed head surface rather than a separate overlay.
 Eyes, brows and animated lips are positioned from that same surface.
+The upper tooth row grows downward from a fixed gumline and stays between
+the shallow mouth cavity and lips, including rounded and wide mouth shapes.
 
 Each section stores `[height, half_width, back_depth, front_depths]` in local
 head coordinates. `lateral_coordinates` specifies the normalized horizontal
