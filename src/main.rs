@@ -303,14 +303,27 @@ fn animate_hosts(
     }
 }
 
+type AnimatedPartsQuery<'world, 'state> = Query<
+    'world,
+    'state,
+    (
+        &'static AnimatedPart,
+        &'static mut Transform,
+        Option<&'static ArmBounds>,
+        &'static ChildOf,
+        &'static mut Visibility,
+    ),
+    Without<Host>,
+>;
+
 fn animate_parts(
     time: Res<Time>,
     session: Res<Session>,
     hosts: Query<&Transform, With<Host>>,
-    mut parts: Query<(&AnimatedPart, &mut Transform, Option<&ArmBounds>, &ChildOf), Without<Host>>,
+    mut parts: AnimatedPartsQuery<'_, '_>,
 ) {
     let elapsed = time.elapsed_secs();
-    for (part, mut transform, bounds, parent) in &mut parts {
+    for (part, mut transform, bounds, parent, mut visibility) in &mut parts {
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
         *transform = part.rest;
@@ -344,6 +357,7 @@ fn animate_parts(
                 transform.scale.y = 1.0 - blink * 0.94;
             }
             PartKind::Mouth => {
+                *visibility = studio::oral_visibility(pose.jaw_open);
                 transform.scale.y += pose.jaw_open * 0.025;
                 transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
                 transform.translation.y -= pose.jaw_open * 0.014;
@@ -362,6 +376,7 @@ fn animate_parts(
                 transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
+                *visibility = studio::oral_visibility(pose.jaw_open);
                 *transform = studio::teeth_pose(
                     part.host,
                     part.rest,

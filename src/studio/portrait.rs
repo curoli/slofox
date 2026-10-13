@@ -387,9 +387,9 @@ pub fn smile(index: usize) -> Mesh {
 
 pub fn tooth_visibility(index: usize, jaw: f32) -> f32 {
     if index == 0 {
-        0.55 + 0.40 * jaw.clamp(0.0, 1.0)
+        0.60 * jaw.clamp(0.0, 1.0)
     } else {
-        jaw.clamp(0.01, 0.60)
+        jaw.clamp(0.0, 0.60)
     }
 }
 
@@ -638,7 +638,8 @@ mod tests {
 
     #[test]
     fn resting_smiles_preserve_bounded_speech_driven_teeth() {
-        assert!(tooth_visibility(0, 0.0) > tooth_visibility(1, 0.0));
+        assert_eq!(tooth_visibility(0, 0.0), 0.0);
+        assert_eq!(tooth_visibility(1, 0.0), 0.0);
         for index in 0..2 {
             for step in 0..100 {
                 let jaw = step as f32 / 99.0;

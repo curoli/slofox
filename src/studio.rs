@@ -13,6 +13,14 @@ pub fn teeth_pose(index: usize, mut rest: Transform, jaw: f32, round: f32, wide:
     rest
 }
 
+pub fn oral_visibility(jaw: f32) -> Visibility {
+    if jaw > 0.02 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    }
+}
+
 #[derive(Component)]
 pub struct Host {
     pub index: usize,
@@ -191,24 +199,16 @@ fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind
 fn mouth_geometry(index: usize) -> [Transform; 4] {
     let portrait = portrait::Portrait::for_host(index);
     let mouth_depth = portrait::face_front(index, 0.0, portrait.mouth_y);
-    let mouth_rest =
-        Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002).with_scale(Vec3::new(
-            portrait.mouth_width,
-            if index == 0 { 0.015 } else { 0.005 },
-            0.003,
-        ));
-    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.008, mouth_depth + 0.009)
+    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002)
+        .with_scale(Vec3::new(portrait.mouth_width, 0.0005, 0.003));
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, mouth_depth + 0.009)
         .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
-    let lip_rest = Transform::from_xyz(
-        0.0,
-        portrait.mouth_y - if index == 0 { 0.019 } else { 0.008 },
-        mouth_depth + 0.011,
-    )
-    .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
-    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, mouth_depth + 0.007)
+    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, mouth_depth + 0.011)
+        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
+    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, mouth_depth + 0.007)
         .with_scale(Vec3::new(
-            portrait.mouth_width * if index == 0 { 0.90 } else { 0.73 },
-            if index == 0 { 0.016 } else { 0.004 },
+            portrait.mouth_width * if index == 0 { 0.75 } else { 0.73 },
+            if index == 0 { 0.010 } else { 0.004 },
             0.0015,
         ));
     [mouth_rest, upper_rest, lip_rest, teeth_rest]
@@ -840,6 +840,10 @@ mod tests {
                         let round = round_step as f32 / 10.0;
                         let wide = wide_step as f32 / 10.0;
                         let pose = teeth_pose(index, teeth, jaw, round, wide);
+                        if oral_visibility(jaw) == Visibility::Hidden {
+                            assert_eq!(pose.scale.y, 0.0);
+                            continue;
+                        }
                         let matrix = pose.to_matrix();
                         let pucker = round * 0.008;
                         let mouth_width = mouth.scale.x * (1.0 - round * 0.45 + wide * 0.25);
@@ -863,6 +867,23 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn silent_hosts_have_closed_lips_and_no_visible_oral_geometry() {
+        for index in 0..2 {
+            let [mouth, upper, lower, teeth] = mouth_geometry(index);
+            assert!(lower.translation.y + lower.scale.y >= upper.translation.y - upper.scale.y);
+            assert_eq!(oral_visibility(0.0), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.01), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.02), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.03), Visibility::Inherited);
+            assert_eq!(teeth_pose(index, teeth, 0.0, 0.0, 0.0).scale.y, 0.0);
+            assert!(mouth.scale.y < 0.001);
+            let speaking = teeth_pose(index, teeth, 1.0, 0.0, 0.0);
+            assert!(speaking.scale.y <= 0.00601);
+            assert!(speaking.scale.x / mouth.scale.x <= 0.75);
         }
     }
 

@@ -14,8 +14,8 @@ OBS records the app window and the two audio channels.
   long, parted black hair and a strapless orange/navy patterned top for host 1;
   shoulder-length, wavy brown hair with lighter strands and a beige patterned
   collared shirt with muted red/green accents for host 2.
-  Host 1 retains a small tooth-showing smile at rest; speech still controls
-  mouth opening and lip shapes independently for both hosts.
+  Both hosts close their lips at rest. Speech independently controls mouth
+  opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
@@ -41,8 +41,8 @@ builds and audio backends have not been tested yet.
 Each head now has its own hand-authored control cage in
 `assets/avatars/host-1-head.json` and `assets/avatars/host-2-head.json`.
 These are manual, reference-guided interpretations, not scans or a claim of
-exact likeness. The first head has fuller oval cheeks and a broader tooth-showing
-smile; the second has a longer face, higher forehead and stronger nose bridge.
+exact likeness. The first head has fuller oval cheeks and a broader smile;
+the second has a longer face, higher forehead and stronger nose bridge.
 The nose is part of the closed head surface rather than a separate overlay.
 Eyes, brows and animated lips are positioned from that same surface.
 The upper tooth row grows downward from a fixed gumline and stays between
