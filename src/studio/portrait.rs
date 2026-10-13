@@ -26,7 +26,7 @@ impl Portrait {
                 eye_height: 0.014,
                 eye_y: 0.285,
                 nose_width: 0.029,
-                mouth_width: 0.067,
+                mouth_width: 0.071,
                 mouth_y: 0.146,
                 hair_length: 0.83,
                 hair_part: 0.022,
@@ -34,8 +34,8 @@ impl Portrait {
         } else {
             Self {
                 eye_width: 0.035,
-                eye_height: 0.012,
-                eye_y: 0.296,
+                eye_height: 0.011,
+                eye_y: 0.292,
                 nose_width: 0.039,
                 mouth_width: 0.057,
                 mouth_y: 0.140,
@@ -67,11 +67,11 @@ fn face_contour(index: usize) -> [[f32; 3]; 10] {
     if index == 0 {
         [
             [0.015, 0.018, 0.047],
-            [0.055, 0.100, 0.107],
+            [0.055, 0.108, 0.107],
             [0.105, 0.136, 0.134],
             [0.165, 0.158, 0.145],
-            [0.225, 0.178, 0.163],
-            [0.285, 0.174, 0.162],
+            [0.225, 0.184, 0.163],
+            [0.285, 0.180, 0.162],
             [0.350, 0.170, 0.154],
             [0.420, 0.157, 0.137],
             [0.480, 0.111, 0.094],
@@ -83,8 +83,8 @@ fn face_contour(index: usize) -> [[f32; 3]; 10] {
             [0.045, 0.103, 0.111],
             [0.095, 0.139, 0.138],
             [0.155, 0.157, 0.151],
-            [0.225, 0.175, 0.162],
-            [0.285, 0.168, 0.166],
+            [0.225, 0.166, 0.162],
+            [0.285, 0.166, 0.166],
             [0.350, 0.174, 0.158],
             [0.420, 0.166, 0.143],
             [0.485, 0.113, 0.097],
@@ -131,10 +131,18 @@ pub fn face_front(index: usize, horizontal: f32, height: f32) -> f32 {
     let cheek =
         (-((horizontal.abs() - 0.091) / 0.061).powi(2) - ((height - 0.231) / 0.043).powi(2)).exp();
     let muzzle = (-(horizontal / 0.083).powi(2) - ((height - 0.148) / 0.036).powi(2)).exp();
+    let fold_x = 0.052 + (0.235 - height) * 0.32;
+    let smile_fold =
+        (-((horizontal.abs() - fold_x) / 0.006).powi(2) - ((height - 0.197) / 0.044).powi(4)).exp();
+    let lower_lid = (-((horizontal.abs() - 0.081) / 0.039).powi(4)
+        - ((height - eye_y + 0.025) / 0.004).powi(2))
+    .exp();
     profile.y * front
         + 0.012 * front.powi(2)
         + front
-            * (-0.010 * socket + if index == 0 { 0.013 } else { 0.008 } * cheek + 0.006 * muzzle)
+            * (-0.010 * socket + if index == 0 { 0.013 } else { 0.008 } * cheek + 0.006 * muzzle
+                - smile_fold * if index == 0 { 0.0012 } else { 0.0020 }
+                - lower_lid * if index == 0 { 0.0005 } else { 0.0012 })
 }
 
 pub fn face(index: usize) -> Mesh {
@@ -345,6 +353,122 @@ pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh 
         triangle.swap(1, 2);
     }
     indexed_surface(positions, indices)
+}
+
+pub fn crown_strand(index: usize, side: f32, strand: usize) -> Mesh {
+    let portrait = Portrait::for_host(index);
+    let sweep = if index == 0 { 0.008 } else { 0.018 };
+    let segments = 24;
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut indices = Vec::new();
+    for step in 0..=segments {
+        let progress = step as f32 / segments as f32;
+        let horizontal = portrait.hair_part * (1.0 - progress) + side * 0.173 * progress;
+        let depth = 0.025 + strand as f32 * 0.021 + progress * 0.012;
+        for edge in [-1.0, 1.0] {
+            let horizontal = horizontal + edge * 0.0020;
+            let unit_z = depth / 0.207;
+            let mut unit_x = horizontal / 0.205;
+            let mut unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
+            for _ in 0..3 {
+                unit_x = (horizontal - portrait.hair_part * 0.12 * unit_y) / 0.205;
+                unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
+            }
+            let normal = Vec3::new(unit_x / 0.205, unit_y / 0.280, unit_z / 0.207).normalize();
+            let point = Vec3::new(horizontal, 0.264 + 0.280 * unit_y + sweep * unit_x, depth)
+                + normal * 0.0020;
+            positions.push(point.to_array());
+            normals.push(normal.to_array());
+        }
+        if step < segments {
+            let base = step as u32 * 2;
+            indices.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        let first = Vec3::from_array(positions[triangle[0] as usize]);
+        let second = Vec3::from_array(positions[triangle[1] as usize]);
+        let third = Vec3::from_array(positions[triangle[2] as usize]);
+        if (second - first)
+            .cross(third - first)
+            .dot(Vec3::from_array(normals[triangle[0] as usize]))
+            < 0.0
+        {
+            triangle.swap(1, 2);
+        }
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+pub fn teeth() -> Mesh {
+    let base = Sphere::new(1.0).mesh().uv(12, 8);
+    let Some(bevy::mesh::VertexAttributeValues::Float32x3(base_positions)) =
+        base.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        unreachable!()
+    };
+    let Some(bevy::mesh::VertexAttributeValues::Float32x3(base_normals)) =
+        base.attribute(Mesh::ATTRIBUTE_NORMAL)
+    else {
+        unreachable!()
+    };
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut indices = Vec::new();
+    for tooth in 0..8 {
+        let center = (tooth as f32 - 3.5) * 0.235;
+        let scale = Vec3::new(0.112, 0.92 - 0.12 * center.abs(), 0.60);
+        let offset = Vec3::new(center, 0.0, 0.24 * (1.0 - center.powi(2)));
+        let vertex_offset = positions.len() as u32;
+        positions.extend(
+            base_positions
+                .iter()
+                .map(|position| (Vec3::from_array(*position) * scale + offset).to_array()),
+        );
+        normals.extend(
+            base_normals
+                .iter()
+                .map(|normal| (Vec3::from_array(*normal) / scale).normalize().to_array()),
+        );
+        indices.extend(
+            base.indices()
+                .unwrap()
+                .iter()
+                .map(|index| vertex_offset + index as u32),
+        );
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+pub fn lip(index: usize, upper: bool) -> Mesh {
+    let mut mesh = smile(index);
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for position in positions {
+            let horizontal = position[0];
+            if upper {
+                position[1] += 0.24 * (-((horizontal.abs() - 0.25) / 0.18).powi(2)).exp();
+            } else {
+                position[1] -= 0.12 * (1.0 - horizontal.powi(2));
+            }
+        }
+    }
+    mesh.compute_area_weighted_normals();
+    mesh
 }
 
 pub fn garment(index: usize) -> Mesh {
@@ -586,6 +710,47 @@ mod tests {
                     .filter(|position| position[0].abs() > 0.99)
                     .all(|position| position[1] > 0.5)
             );
+        }
+    }
+
+    #[test]
+    fn crown_strands_lips_and_teeth_are_finite_and_face_outward() {
+        let mut meshes = vec![teeth()];
+        for index in 0..2 {
+            meshes.extend([lip(index, true), lip(index, false)]);
+            for side in [-1.0, 1.0] {
+                for strand in 0..4 {
+                    meshes.push(crown_strand(index, side, strand));
+                }
+            }
+        }
+        for mesh in meshes {
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing positions")
+            };
+            let Some(VertexAttributeValues::Float32x3(normals)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("missing normals")
+            };
+            assert_eq!(positions.len(), normals.len());
+            assert!(
+                positions
+                    .iter()
+                    .flatten()
+                    .all(|value| value.is_finite() && value.abs() < 2.0)
+            );
+            assert!(normals.iter().flatten().all(|value| value.is_finite()));
+            let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+            assert!(indices.iter().all(|&index| index < positions.len()));
+            for &[first, second, third] in indices.as_chunks::<3>().0 {
+                let first_point = Vec3::from_array(positions[first]);
+                let cross = (Vec3::from_array(positions[second]) - first_point)
+                    .cross(Vec3::from_array(positions[third]) - first_point);
+                assert!(cross.dot(Vec3::from_array(normals[first])) >= -0.00000001);
+            }
         }
     }
 
