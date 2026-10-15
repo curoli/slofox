@@ -11,6 +11,7 @@ const THICKNESS: f32 = 0.10;
 const CENTER_Z: f32 = 0.65;
 const HALF_STRAIGHT: f32 = 1.35;
 const RADIUS: f32 = 0.50;
+pub const BACK_EDGE_Z: f32 = CENTER_Z - RADIUS;
 const INSET: f32 = 0.03;
 
 pub fn tabletop() -> Mesh {
