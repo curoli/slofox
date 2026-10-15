@@ -30,6 +30,8 @@ OBS records the app window and the two audio channels.
   silhouette, while the tighter underarm blend keeps the armpits open.
   The blend is confined to the upper, inner shoulder so it does not swell
   the outer upper arm or leave a narrowed section below the shoulder.
+  Local 3D Gaussian smoothing rounds off remaining shoulder ridges before
+  mesh extraction; it runs only during cached surface generation at startup.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest

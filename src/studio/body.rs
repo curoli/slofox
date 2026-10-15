@@ -17,7 +17,7 @@ pub struct Surface {
 
 const SHOULDER_Y: f32 = 0.55;
 const SHOULDER_RADIUS: f32 = 0.061;
-const SHOULDER_TOP_Y: f32 = 0.620;
+const SHOULDER_TOP_Y: f32 = 0.6183;
 const CHEST_RADIUS_Y: f32 = 0.100;
 pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
@@ -176,7 +176,7 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
     smooth_union(upper_arm, lower_arm, 0.010)
 }
 
-fn distance(index: usize, point: Vec3) -> f32 {
+fn body_distance(index: usize, point: Vec3) -> f32 {
     let shoulder_blend = 0.015
         + 0.085
             * smoothstep((point.y - 0.49) / 0.10)
@@ -190,6 +190,30 @@ fn distance(index: usize, point: Vec3) -> f32 {
         arm_distance(point, 1.0),
         shoulder_blend,
     )
+}
+
+fn distance(index: usize, point: Vec3) -> f32 {
+    let original = body_distance(index, point);
+    let amount = smoothstep((point.y - 0.42) / 0.08)
+        * (1.0 - smoothstep((point.y - 0.65) / 0.06))
+        * smoothstep((point.x.abs() - 0.16) / 0.06)
+        * (1.0 - smoothstep((point.x.abs() - 0.30) / 0.07));
+    if amount == 0.0 {
+        return original;
+    }
+    let kernel = [(-0.025, 0.25), (0.0, 0.50), (0.025, 0.25)];
+    let mut smoothed = 0.0;
+    for (horizontal, horizontal_weight) in kernel {
+        for (vertical, vertical_weight) in kernel {
+            for (depth, depth_weight) in kernel {
+                smoothed += body_distance(index, point + Vec3::new(horizontal, vertical, depth))
+                    * horizontal_weight
+                    * vertical_weight
+                    * depth_weight;
+            }
+        }
+    }
+    original + amount * (smoothed - original)
 }
 
 fn weights(index: usize, point: Vec3) -> [f32; 4] {
@@ -436,6 +460,55 @@ mod tests {
                 .fold(f32::NEG_INFINITY, f32::max);
             let coverage = (neckline - chest_bottom) / chest_height;
             assert!((0.45..0.60).contains(&coverage), "coverage: {coverage}");
+        }
+    }
+
+    #[test]
+    fn shoulder_smoothing_reduces_surface_normal_variation() {
+        let variation = |index, field: fn(usize, Vec3) -> f32| {
+            let mut total = 0.0;
+            for side in [-1.0, 1.0] {
+                for height in [0.50, 0.54, 0.58, 0.60] {
+                    let mut previous: Option<Vec3> = None;
+                    for step in 0..=150 {
+                        let horizontal = side * (0.20 + step as f32 * 0.001);
+                        if field(index, Vec3::new(horizontal, height, 0.0)) >= 0.0 {
+                            previous = None;
+                            continue;
+                        }
+                        let mut inside = 0.0;
+                        let mut outside = 0.20;
+                        for _ in 0..20 {
+                            let depth = (inside + outside) * 0.5;
+                            if field(index, Vec3::new(horizontal, height, depth)) < 0.0 {
+                                inside = depth;
+                            } else {
+                                outside = depth;
+                            }
+                        }
+                        let point = Vec3::new(horizontal, height, (inside + outside) * 0.5);
+                        let normal = Vec3::from_array(std::array::from_fn(|axis| {
+                            let mut delta = Vec3::ZERO;
+                            delta[axis] = 0.0005;
+                            field(index, point + delta) - field(index, point - delta)
+                        }))
+                        .normalize();
+                        if let Some(previous) = previous {
+                            total += normal.distance_squared(previous);
+                        }
+                        previous = Some(normal);
+                    }
+                }
+            }
+            total
+        };
+        for index in 0..2 {
+            let original = variation(index, body_distance);
+            let smoothed = variation(index, distance);
+            assert!(
+                smoothed < original * 0.80,
+                "host {index}: {smoothed} vs {original}"
+            );
         }
     }
 
