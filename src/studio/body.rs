@@ -105,10 +105,10 @@ pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f
     let left = (-((horizontal + 0.11) / 0.075).powi(2)).exp();
     let right = (-((horizontal - 0.11) / 0.075).powi(2)).exp();
     let center = (-(horizontal / 0.045).powi(2)).exp();
-    let vertical = (-((height - 0.46) / 0.085).powi(2)).exp()
+    let vertical = (-((height - 0.48) / 0.095).powi(2)).exp()
         * smoothstep((height - 0.30) / 0.06)
         * (1.0 - smoothstep((height - 0.55) / 0.09));
-    (0.040 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
+    (0.055 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
 }
 
 fn torso_distance(index: usize, point: Vec3) -> f32 {
@@ -386,6 +386,10 @@ mod tests {
             assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
             assert!(torso_distance(0, Vec3::new(0.11, height, right)).abs() < 0.000001);
         }
+        let upper_center = front(0, 0.0, 0.52);
+        let upper_contour = front(0, 0.11, 0.52);
+        assert!(upper_contour > upper_center + 0.025);
+        assert!(upper_contour > 0.18 && upper_contour < 0.20);
         for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
             assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
             assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
