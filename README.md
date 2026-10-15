@@ -16,6 +16,8 @@ OBS records the app window and the two audio channels.
   collared shirt with muted red/green accents for host 2.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.
+  The upper lips follow the opening's curved outline as the jaw moves, instead
+  of keeping a fixed smile curve with raised tips.
   Individual lip contours, separate tooth crowns and fine crown-hair strands
   add detail without photo textures.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a

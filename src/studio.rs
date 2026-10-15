@@ -34,6 +34,37 @@ pub struct AnimatedPart {
     pub rest: Transform,
 }
 
+#[derive(Component)]
+pub struct UpperLipContour {
+    rest_positions: Vec<[f32; 3]>,
+}
+
+impl UpperLipContour {
+    fn new(mesh: &Mesh) -> Self {
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            unreachable!()
+        };
+        Self {
+            rest_positions: positions.clone(),
+        }
+    }
+
+    pub fn deform(&self, mesh: &mut Mesh, jaw: f32, vertical_scale: f32) {
+        if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+        {
+            for (position, rest) in positions.iter_mut().zip(&self.rest_positions) {
+                let arch = (1.0 - rest[0].powi(2)).max(0.0).sqrt();
+                *position = *rest;
+                position[1] += jaw * (0.025 * arch - 0.014) / vertical_scale;
+            }
+        }
+        mesh.compute_area_weighted_normals();
+    }
+}
+
 pub enum PartKind {
     Head,
     Arm(f32),
@@ -421,7 +452,9 @@ fn host(
         );
     }
 
-    let upper_shape = meshes.add(portrait::lip(index, true));
+    let upper_mesh = portrait::lip(index, true);
+    let upper_contour = UpperLipContour::new(&upper_mesh);
+    let upper_shape = meshes.add(upper_mesh);
     let lower_shape = meshes.add(portrait::lip(index, false));
     let [mouth_rest, upper_rest, lip_rest, teeth_rest] = mouth_geometry(index);
     let mouth = object(
@@ -440,6 +473,7 @@ fn host(
         upper_rest,
     );
     animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
+    commands.entity(upper_lip).insert(upper_contour);
     let lower_lip = object(commands, Some(head), &lower_shape, &palette.lips, lip_rest);
     animated(commands, lower_lip, index, PartKind::LowerLip, lip_rest);
     let tooth_shape = meshes.add(portrait::teeth());
@@ -858,6 +892,68 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn upper_lips_follow_the_opening_without_upturned_tips_or_accumulated_deformation() {
+        use bevy::mesh::VertexAttributeValues;
+
+        let sphere = Sphere::new(1.0).mesh().uv(32, 16);
+        let Some(VertexAttributeValues::Float32x3(sphere_positions)) =
+            sphere.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing sphere positions")
+        };
+        for index in 0..2 {
+            let [mouth, upper, _, _] = mouth_geometry(index);
+            let mut mesh = portrait::lip(index, true);
+            let contour = UpperLipContour::new(&mesh);
+            for jaw_step in 0..=10 {
+                let jaw = jaw_step as f32 / 10.0;
+                for round_step in 0..=10 {
+                    let round = round_step as f32 / 10.0;
+                    for wide_step in 0..=10 {
+                        let wide = wide_step as f32 / 10.0;
+                        let mut pose = upper;
+                        pose.scale.x *= 1.0 - round * 0.45 + wide * 0.25;
+                        pose.scale.y *= 1.0 + round * 0.4;
+                        contour.deform(&mut mesh, jaw, pose.scale.y);
+                        let Some(VertexAttributeValues::Float32x3(positions)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                        else {
+                            panic!("missing lip positions")
+                        };
+                        for (position, sphere_position) in positions.iter().zip(sphere_positions) {
+                            let point = pose.transform_point(Vec3::from_array(*position));
+                            let centerline_y = point.y - sphere_position[1] * pose.scale.y;
+                            let mouth_width = mouth.scale.x * (1.0 - round * 0.45 + wide * 0.25);
+                            let arch = (1.0 - (point.x / mouth_width).powi(2)).max(0.0).sqrt();
+                            let boundary_y = mouth.translation.y - jaw * 0.014
+                                + (mouth.scale.y + jaw * 0.025) * arch;
+                            let margin = centerline_y - boundary_y;
+                            assert!(
+                                (0.0005..0.009).contains(&margin),
+                                "host {index}, jaw {jaw}, round {round}, wide {wide}: {margin}"
+                            );
+                            if position[0].abs() > 0.99 {
+                                assert!(centerline_y < mouth.translation.y - jaw * 0.014 + 0.004);
+                            }
+                        }
+                        let Some(VertexAttributeValues::Float32x3(normals)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+                        else {
+                            panic!("missing lip normals")
+                        };
+                        assert!(normals.iter().flatten().all(|value| value.is_finite()));
+                    }
+                }
+            }
+            contour.deform(&mut mesh, 0.0, upper.scale.y);
+            assert_eq!(
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+                Some(&VertexAttributeValues::Float32x3(contour.rest_positions))
+            );
         }
     }
 

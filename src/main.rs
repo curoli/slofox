@@ -20,7 +20,7 @@ use slofox::{
     formants::Formants,
     routing::{self, TabRouter},
 };
-use studio::{AnimatedPart, ArmBounds, Host, PartKind, StudioCamera};
+use studio::{AnimatedPart, ArmBounds, Host, PartKind, StudioCamera, UpperLipContour};
 
 #[derive(Resource)]
 struct Session {
@@ -312,6 +312,8 @@ type AnimatedPartsQuery<'world, 'state> = Query<
         Option<&'static ArmBounds>,
         &'static ChildOf,
         &'static mut Visibility,
+        Option<&'static UpperLipContour>,
+        Option<&'static Mesh3d>,
     ),
     Without<Host>,
 >;
@@ -320,10 +322,11 @@ fn animate_parts(
     time: Res<Time>,
     session: Res<Session>,
     hosts: Query<&Transform, With<Host>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut parts: AnimatedPartsQuery<'_, '_>,
 ) {
     let elapsed = time.elapsed_secs();
-    for (part, mut transform, bounds, parent, mut visibility) in &mut parts {
+    for (part, mut transform, bounds, parent, mut visibility, upper_contour, mesh) in &mut parts {
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
         *transform = part.rest;
@@ -367,6 +370,11 @@ fn animate_parts(
                 transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
                 transform.scale.y *= 1.0 + pose.lip_round * 0.4;
                 transform.translation.z += pose.lip_round * 0.008;
+                if let (Some(contour), Some(mesh)) = (upper_contour, mesh)
+                    && let Some(mut mesh) = meshes.get_mut(&mesh.0)
+                {
+                    contour.deform(&mut mesh, pose.jaw_open, transform.scale.y);
+                }
             }
             PartKind::LowerLip => {
                 transform.translation.y -= pose.jaw_open * 0.041;
