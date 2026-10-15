@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Prototype studio preview](docs/studio-preview.png)
+![Studio preview with updated upper-body geometry](docs/studio-preview-2026-10-15.png)
 
 ## Prototype
 
@@ -93,7 +93,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait comparison view](docs/portrait-preview.png)
+![Portrait comparison view with updated upper-body geometry](docs/portrait-preview-2026-10-15.png)
 
 ## Build and demo
 
