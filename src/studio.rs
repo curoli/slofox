@@ -329,7 +329,7 @@ fn host(
         }
     }
 
-    let head_rest = Transform::from_xyz(0.0, 0.74, 0.0);
+    let head_rest = Transform::from_xyz(0.0, 0.74 - body::NECK_LOWERING, 0.0);
     let head = commands.spawn((head_rest, Visibility::default())).id();
     commands.entity(root).add_child(head);
     animated(commands, head, index, PartKind::Head, head_rest);
@@ -824,6 +824,34 @@ pub fn setup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lowered_heads_keep_their_neck_overlap_in_the_production_scene() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let mut query = world.query::<(&AnimatedPart, &Transform)>();
+        let mut heads = 0;
+        for (part, transform) in query.iter(world) {
+            if !matches!(part.kind, PartKind::Head) {
+                continue;
+            }
+            assert!((transform.translation.y - 0.715).abs() < 0.00001);
+            assert_eq!(*transform, part.rest);
+            let neck_top = body::surface(part.host)
+                .positions
+                .iter()
+                .map(|point| point[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((neck_top - transform.translation.y - 0.09).abs() < 0.0001);
+            heads += 1;
+        }
+        assert_eq!(heads, 2);
+    }
 
     #[test]
     fn production_body_material_preserves_full_skin_vertex_colors() {

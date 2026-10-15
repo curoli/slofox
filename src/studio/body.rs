@@ -17,6 +17,8 @@ pub struct Surface {
 
 const SHOULDER_Y: f32 = 0.55;
 const SHOULDER_RADIUS: f32 = 0.061;
+pub const NECK_LOWERING: f32 = 0.025;
+const NECK_TOP_Y: f32 = 0.83 - NECK_LOWERING;
 const SHOULDER_TOP_Y: f32 = 0.6183;
 const CHEST_RADIUS_Y: f32 = 0.100;
 pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
@@ -59,9 +61,9 @@ pub fn profile(index: usize, height: f32) -> Vec2 {
         [0.55, 0.305, 0.145],
         [0.59, 0.285, 0.134],
         [0.64, 0.180, 0.095],
-        [0.70, 0.088, 0.076],
-        [0.76, 0.074, 0.075],
-        [0.83, 0.082, 0.078],
+        [0.70 - NECK_LOWERING, 0.088, 0.076],
+        [0.76 - NECK_LOWERING, 0.074, 0.075],
+        [NECK_TOP_Y, 0.082, 0.078],
     ];
     let interval = sections
         .partition_point(|section| section[0] < height)
@@ -151,7 +153,7 @@ fn torso_distance(index: usize, point: Vec3) -> f32 {
     let depth = point.z - chest_offset(index, point.x, point.y, point.z);
     let radial =
         (Vec2::new(point.x / profile.x, depth / profile.y).length() - 1.0) * profile.min_element();
-    radial.max(-0.10 - point.y).max(point.y - 0.83)
+    radial.max(-0.10 - point.y).max(point.y - NECK_TOP_Y)
 }
 
 fn capsule(point: Vec3, start: Vec3, end: Vec3, start_radius: f32, end_radius: f32) -> f32 {
@@ -203,7 +205,7 @@ fn body_distance(index: usize, point: Vec3) -> f32 {
     )
 }
 
-fn distance(index: usize, point: Vec3) -> f32 {
+fn upper_body_distance(index: usize, point: Vec3) -> f32 {
     let original = body_distance(index, point);
     let amount = smoothstep((point.y - 0.42) / 0.10);
     if amount == 0.0 {
@@ -242,9 +244,35 @@ fn distance(index: usize, point: Vec3) -> f32 {
         neck_width - point.x.abs(),
         0.025,
     );
-    let neck_blend = 0.035;
+    let neck_blend = 0.015 + 0.020 * (1.0 - smoothstep((point.y - 0.63) / 0.04));
     let upper_body = smooth_union(convex, neck, neck_blend);
     original + amount * (upper_body - original)
+}
+
+fn distance(index: usize, point: Vec3) -> f32 {
+    let original = upper_body_distance(index, point);
+    let amount = smoothstep((point.z - 0.045) / 0.030)
+        * smoothstep((point.y - 0.52) / 0.03)
+        * (1.0 - smoothstep((point.y - 0.61) / 0.04))
+        * smoothstep((point.x.abs() - 0.10) / 0.06)
+        * (1.0 - smoothstep((point.x.abs() - 0.30) / 0.07));
+    if amount == 0.0 {
+        return original;
+    }
+    let kernel = [(-0.025, 0.25), (0.0, 0.50), (0.025, 0.25)];
+    let mut smoothed = 0.0;
+    for (horizontal, horizontal_weight) in kernel {
+        for (vertical, vertical_weight) in kernel {
+            for (depth, depth_weight) in kernel {
+                smoothed +=
+                    upper_body_distance(index, point + Vec3::new(horizontal, vertical, depth))
+                        * horizontal_weight
+                        * vertical_weight
+                        * depth_weight;
+            }
+        }
+    }
+    original + amount * (smoothed - original)
 }
 
 fn weights(index: usize, point: Vec3) -> [f32; 4] {
@@ -423,7 +451,7 @@ impl Surface {
         }
         for (point, normal) in surface.positions.iter().zip(&mut surface.normals) {
             let point = Vec3::from_array(*point);
-            if (-0.08..0.81).contains(&point.y) {
+            if (-0.08..NECK_TOP_Y - 0.02).contains(&point.y) {
                 *normal = surface_normal(index, point).to_array();
             }
         }
@@ -581,10 +609,15 @@ mod tests {
         };
         for index in 0..2 {
             let original = variation(index, body_distance);
+            let unfiltered = variation(index, upper_body_distance);
             let smoothed = variation(index, distance);
             assert!(
                 smoothed < original * 0.80,
                 "host {index}: {smoothed} vs {original}"
+            );
+            assert!(
+                smoothed < unfiltered * 0.90,
+                "front smoothing: host {index}: {smoothed} vs {unfiltered}"
             );
         }
     }
@@ -866,13 +899,13 @@ mod tests {
         for index in 0..2 {
             let mut previous = profile(index, 0.55);
             for step in 1..=1000 {
-                let current = profile(index, 0.55 + step as f32 * 0.00021);
+                let current = profile(index, 0.55 + step as f32 * (0.21 - NECK_LOWERING) / 1000.0);
                 assert!(current.is_finite() && current.min_element() > 0.07);
                 assert!(current.x <= previous.x + 0.000001);
                 assert!(current.y <= previous.y + 0.000001);
                 previous = current;
             }
-            for height in [0.59, 0.64, 0.70] {
+            for height in [0.59, 0.64, 0.70 - NECK_LOWERING] {
                 let center = profile(index, height);
                 let before = (center - profile(index, height - 0.0001)) / 0.0001;
                 let after = (profile(index, height + 0.0001) - center) / 0.0001;
