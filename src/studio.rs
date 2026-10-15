@@ -4,6 +4,23 @@ use bevy::{prelude::*, render::view::NoIndirectDrawing};
 
 mod desk;
 mod portrait;
+mod sculpt;
+
+pub fn teeth_pose(index: usize, mut rest: Transform, jaw: f32, round: f32, wide: f32) -> Transform {
+    rest.scale.y *= portrait::tooth_visibility(index, jaw);
+    rest.scale.x *= 1.0 - round * 0.45 + wide * 0.25;
+    rest.translation.y -= portrait::TOOTH_TOP * rest.scale.y;
+    rest.translation.z += round * 0.008;
+    rest
+}
+
+pub fn oral_visibility(jaw: f32) -> Visibility {
+    if jaw > 0.02 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    }
+}
 
 #[derive(Component)]
 pub struct Host {
@@ -179,6 +196,24 @@ fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind
         .insert(AnimatedPart { host, kind, rest });
 }
 
+fn mouth_geometry(index: usize) -> [Transform; 4] {
+    let portrait = portrait::Portrait::for_host(index);
+    let mouth_depth = portrait::face_front(index, 0.0, portrait.mouth_y);
+    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002)
+        .with_scale(Vec3::new(portrait.mouth_width, 0.0005, 0.003));
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, mouth_depth + 0.009)
+        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
+    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, mouth_depth + 0.011)
+        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
+    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, mouth_depth + 0.007)
+        .with_scale(Vec3::new(
+            portrait.mouth_width * if index == 0 { 0.75 } else { 0.73 },
+            if index == 0 { 0.010 } else { 0.004 },
+            0.0015,
+        ));
+    [mouth_rest, upper_rest, lip_rest, teeth_rest]
+}
+
 fn host(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -284,9 +319,9 @@ fn host(
             Vec3::new(0.027, 0.049, 0.02),
         );
         let eye_rest = Transform::from_xyz(
-            side * 0.072,
+            side * portrait.eye_spacing,
             portrait.eye_y,
-            portrait::face_front(index, side * 0.072, portrait.eye_y) + 0.003,
+            portrait::face_front(index, side * portrait.eye_spacing, portrait.eye_y) + 0.004,
         )
         .with_rotation(Quat::from_rotation_z(
             side * if index == 0 { 0.10 } else { -0.04 },
@@ -322,7 +357,11 @@ fn host(
             eye,
             &palette.iris,
             Vec3::new(-side * 0.002, 0.0, 0.008),
-            Vec3::new(0.012, portrait.eye_height * 0.92, 0.005),
+            Vec3::new(
+                if index == 0 { 0.016 } else { 0.014 },
+                portrait.eye_height * 0.92,
+                0.005,
+            ),
         );
         ellipsoid(
             commands,
@@ -345,9 +384,13 @@ fn host(
             let next = (segment + 1) as f32 / 5.0;
             let point = |amount: f32| {
                 Vec3::new(
-                    side * (0.031 + amount * 0.080),
+                    side * (portrait.eye_spacing - 0.040 + amount * 0.080),
                     portrait.eye_y + 0.034 + (amount * PI).sin() * 0.009,
-                    0.165 - amount * 0.014,
+                    portrait::face_front(
+                        index,
+                        side * (portrait.eye_spacing - 0.040 + amount * 0.080),
+                        portrait.eye_y + 0.034 + (amount * PI).sin() * 0.009,
+                    ) + 0.002,
                 )
             };
             object(
@@ -363,14 +406,6 @@ fn host(
             );
         }
     }
-    let nose = meshes.add(portrait::nose(index));
-    object(
-        commands,
-        Some(head),
-        &nose,
-        &palette.skin,
-        Transform::default(),
-    );
     for side in [-1.0, 1.0] {
         ellipsoid(
             commands,
@@ -380,8 +415,7 @@ fn host(
             Vec3::new(
                 side * portrait.nose_width * 0.57,
                 0.193,
-                portrait::face_front(index, side * portrait.nose_width * 0.57, 0.193)
-                    + if index == 0 { 0.027 } else { 0.033 },
+                portrait::face_front(index, side * portrait.nose_width * 0.57, 0.193) + 0.001,
             ),
             Vec3::new(0.006, 0.0025, 0.002),
         );
@@ -389,11 +423,7 @@ fn host(
 
     let upper_shape = meshes.add(portrait::lip(index, true));
     let lower_shape = meshes.add(portrait::lip(index, false));
-    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, 0.162).with_scale(Vec3::new(
-        portrait.mouth_width,
-        if index == 0 { 0.009 } else { 0.005 },
-        0.013,
-    ));
+    let [mouth_rest, upper_rest, lip_rest, teeth_rest] = mouth_geometry(index);
     let mouth = object(
         commands,
         Some(head),
@@ -402,8 +432,6 @@ fn host(
         mouth_rest,
     );
     animated(commands, mouth, index, PartKind::Mouth, mouth_rest);
-    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.008, 0.171)
-        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
     let upper_lip = object(
         commands,
         Some(head),
@@ -412,20 +440,8 @@ fn host(
         upper_rest,
     );
     animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
-    let lip_rest = Transform::from_xyz(
-        0.0,
-        portrait.mouth_y - if index == 0 { 0.015 } else { 0.008 },
-        0.173,
-    )
-    .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
     let lower_lip = object(commands, Some(head), &lower_shape, &palette.lips, lip_rest);
     animated(commands, lower_lip, index, PartKind::LowerLip, lip_rest);
-    let teeth_rest =
-        Transform::from_xyz(0.0, portrait.mouth_y + 0.003, 0.176).with_scale(Vec3::new(
-            portrait.mouth_width * 0.73,
-            if index == 0 { 0.008 } else { 0.004 },
-            0.004,
-        ));
     let tooth_shape = meshes.add(portrait::teeth());
     let teeth = object(
         commands,
@@ -483,8 +499,8 @@ fn host(
         geometry,
         head,
         &palette.hair,
-        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.16 }, -0.10),
-        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.24 }, 0.10),
+        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.07 }, -0.10),
+        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.30 }, 0.10),
     );
     for side in [-1.0, 1.0] {
         for lock in 0..5 {
@@ -794,6 +810,72 @@ mod tests {
         let corrected = arm.translation;
         bounds.keep_above_desk(&host, &mut arm);
         assert!((corrected - arm.translation).length() < 0.00001);
+    }
+
+    #[test]
+    fn teeth_stay_behind_lips_and_inside_mouth_bounds_across_all_shapes() {
+        use bevy::mesh::VertexAttributeValues;
+
+        let mesh = portrait::teeth();
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing tooth positions")
+        };
+        for index in 0..2 {
+            let [mouth, upper, lower, teeth] = mouth_geometry(index);
+            for jaw_step in 0..=10 {
+                for round_step in 0..=10 {
+                    for wide_step in 0..=10 {
+                        let jaw = jaw_step as f32 / 10.0;
+                        let round = round_step as f32 / 10.0;
+                        let wide = wide_step as f32 / 10.0;
+                        let pose = teeth_pose(index, teeth, jaw, round, wide);
+                        if oral_visibility(jaw) == Visibility::Hidden {
+                            assert_eq!(pose.scale.y, 0.0);
+                            continue;
+                        }
+                        let matrix = pose.to_matrix();
+                        let pucker = round * 0.008;
+                        let mouth_width = mouth.scale.x * (1.0 - round * 0.45 + wide * 0.25);
+                        let mouth_bottom =
+                            mouth.translation.y - jaw * 0.014 - mouth.scale.y - jaw * 0.025;
+                        let mut uppermost = f32::NEG_INFINITY;
+                        for position in positions {
+                            let point = matrix.transform_point3(Vec3::from_array(*position));
+                            uppermost = uppermost.max(point.y);
+                            assert!(point.z < upper.translation.z + pucker);
+                            assert!(point.z < lower.translation.z + pucker);
+                            assert!(point.z > mouth.translation.z + mouth.scale.z + pucker);
+                            assert!(point.x.abs() <= mouth_width);
+                            assert!(point.y >= mouth_bottom - 0.000001);
+                            assert!(point.y <= upper.translation.y);
+                        }
+                        assert!(
+                            (uppermost - teeth.translation.y).abs() < 0.000001,
+                            "gumline moved: host {index}, jaw {jaw}, round {round}, wide {wide}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn silent_hosts_have_closed_lips_and_no_visible_oral_geometry() {
+        for index in 0..2 {
+            let [mouth, upper, lower, teeth] = mouth_geometry(index);
+            assert!(lower.translation.y + lower.scale.y >= upper.translation.y - upper.scale.y);
+            assert_eq!(oral_visibility(0.0), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.01), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.02), Visibility::Hidden);
+            assert_eq!(oral_visibility(0.03), Visibility::Inherited);
+            assert_eq!(teeth_pose(index, teeth, 0.0, 0.0, 0.0).scale.y, 0.0);
+            assert!(mouth.scale.y < 0.001);
+            let speaking = teeth_pose(index, teeth, 1.0, 0.0, 0.0);
+            assert!(speaking.scale.y <= 0.00601);
+            assert!(speaking.scale.x / mouth.scale.x <= 0.75);
+        }
     }
 
     #[test]

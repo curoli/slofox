@@ -64,6 +64,11 @@ pub struct Options {
     pub fps: u64,
     #[arg(long, help = "Cycle slowly through three studio camera positions")]
     pub auto_camera: bool,
+    #[arg(
+        long,
+        help = "Frame both faces closely for comparison with portrait references"
+    )]
+    pub portrait_preview: bool,
     #[arg(long, help = "Start with the diagnostic overlay hidden")]
     pub clean: bool,
     #[arg(
@@ -124,6 +129,20 @@ mod tests {
         ] {
             assert!(Options::try_parse_from(arguments).is_err());
         }
+    }
+
+    #[test]
+    fn portrait_preview_is_opt_in() {
+        assert!(
+            !Options::try_parse_from(["slofox", "--demo"])
+                .unwrap()
+                .portrait_preview
+        );
+        assert!(
+            Options::try_parse_from(["slofox", "--demo", "--portrait-preview"])
+                .unwrap()
+                .portrait_preview
+        );
     }
 
     #[test]

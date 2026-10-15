@@ -303,14 +303,27 @@ fn animate_hosts(
     }
 }
 
+type AnimatedPartsQuery<'world, 'state> = Query<
+    'world,
+    'state,
+    (
+        &'static AnimatedPart,
+        &'static mut Transform,
+        Option<&'static ArmBounds>,
+        &'static ChildOf,
+        &'static mut Visibility,
+    ),
+    Without<Host>,
+>;
+
 fn animate_parts(
     time: Res<Time>,
     session: Res<Session>,
     hosts: Query<&Transform, With<Host>>,
-    mut parts: Query<(&AnimatedPart, &mut Transform, Option<&ArmBounds>, &ChildOf), Without<Host>>,
+    mut parts: AnimatedPartsQuery<'_, '_>,
 ) {
     let elapsed = time.elapsed_secs();
-    for (part, mut transform, bounds, parent) in &mut parts {
+    for (part, mut transform, bounds, parent, mut visibility) in &mut parts {
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
         *transform = part.rest;
@@ -344,6 +357,7 @@ fn animate_parts(
                 transform.scale.y = 1.0 - blink * 0.94;
             }
             PartKind::Mouth => {
+                *visibility = studio::oral_visibility(pose.jaw_open);
                 transform.scale.y += pose.jaw_open * 0.025;
                 transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
                 transform.translation.y -= pose.jaw_open * 0.014;
@@ -362,12 +376,14 @@ fn animate_parts(
                 transform.translation.z += pose.lip_round * 0.008;
             }
             PartKind::Teeth => {
-                transform.scale.y *= if part.host == 0 {
-                    0.35 + pose.jaw_open.clamp(0.0, 0.6)
-                } else {
-                    pose.jaw_open.clamp(0.01, 0.6)
-                };
-                transform.scale.x *= 1.0 - pose.lip_round * 0.45 + pose.lip_wide * 0.25;
+                *visibility = studio::oral_visibility(pose.jaw_open);
+                *transform = studio::teeth_pose(
+                    part.host,
+                    part.rest,
+                    pose.jaw_open,
+                    pose.lip_round,
+                    pose.lip_wide,
+                );
             }
         }
     }
@@ -381,10 +397,18 @@ fn move_camera(
     if session.auto_camera {
         session.camera = (time.elapsed_secs() / 14.0) as usize % 3;
     }
-    let target = Vec3::new(0.0, 1.44, 0.0);
-    let position = match session.camera {
-        1 => Vec3::new(-2.3, 2.05, 3.7),
-        2 => Vec3::new(2.3, 2.05, 3.7),
+    let portrait = session.options.portrait_preview;
+    let target = if portrait {
+        Vec3::new(0.0, 1.73, 0.0)
+    } else {
+        Vec3::new(0.0, 1.44, 0.0)
+    };
+    let position = match (portrait, session.camera) {
+        (true, 1) => Vec3::new(-1.25, 1.82, 2.20),
+        (true, 2) => Vec3::new(1.25, 1.82, 2.20),
+        (true, _) => Vec3::new(0.0, 1.82, 2.20),
+        (false, 1) => Vec3::new(-2.3, 2.05, 3.7),
+        (false, 2) => Vec3::new(2.3, 2.05, 3.7),
         _ => Vec3::new(0.0, 2.12, 4.25),
     };
     for mut transform in &mut cameras {
