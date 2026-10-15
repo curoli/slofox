@@ -166,6 +166,17 @@ fn smooth_union(first: f32, second: f32, radius: f32) -> f32 {
     first.min(second) - blend * blend * radius * 0.25
 }
 
+fn convex_capsule(point: Vec3, start: Vec3, end: Vec3, start_radius: f32, end_radius: f32) -> f32 {
+    let direction = (end - start).normalize();
+    let length = end.distance(start);
+    let relative = point - start;
+    let axial = relative.dot(direction);
+    let radial = (relative - direction * axial).length();
+    let slope = (end_radius - start_radius) / length;
+    let closest = (axial + slope * radial / (1.0 - slope * slope).sqrt()).clamp(0.0, length);
+    (relative - direction * closest).length() - (start_radius + slope * closest)
+}
+
 fn arm_distance(point: Vec3, side: f32) -> f32 {
     let point = point - shoulder(side);
     let shoulder = arm_start(side);
@@ -194,26 +205,41 @@ fn body_distance(index: usize, point: Vec3) -> f32 {
 
 fn distance(index: usize, point: Vec3) -> f32 {
     let original = body_distance(index, point);
-    let amount = smoothstep((point.y - 0.42) / 0.08)
-        * (1.0 - smoothstep((point.y - 0.65) / 0.06))
-        * smoothstep((point.x.abs() - 0.16) / 0.06)
-        * (1.0 - smoothstep((point.x.abs() - 0.30) / 0.07));
+    let amount = smoothstep((point.y - 0.42) / 0.10);
     if amount == 0.0 {
         return original;
     }
-    let kernel = [(-0.025, 0.25), (0.0, 0.50), (0.025, 0.25)];
-    let mut smoothed = 0.0;
-    for (horizontal, horizontal_weight) in kernel {
-        for (vertical, vertical_weight) in kernel {
-            for (depth, depth_weight) in kernel {
-                smoothed += body_distance(index, point + Vec3::new(horizontal, vertical, depth))
-                    * horizontal_weight
-                    * vertical_weight
-                    * depth_weight;
-            }
-        }
+    let side = if point.x < 0.0 { -1.0 } else { 1.0 };
+    let start = Vec3::new(side * 0.16, 0.5432, 0.0);
+    let end = shoulder(side) + arm_start(side);
+    let lower = shoulder(side) + elbow(side);
+    let mut convex = convex_capsule(point, start, end, 0.09, SHOULDER_RADIUS)
+        .min(convex_capsule(point, end, lower, SHOULDER_RADIUS, 0.040))
+        .min(convex_capsule(point, start, lower, 0.09, 0.040));
+    let first = end - start;
+    let second = lower - start;
+    let inverse_metric = Mat2::from_cols(
+        Vec2::new(first.length_squared(), first.dot(second)),
+        Vec2::new(first.dot(second), second.length_squared()),
+    )
+    .inverse();
+    let relative = point - start;
+    let projected = inverse_metric * Vec2::new(relative.dot(first), relative.dot(second));
+    let radius_delta = Vec2::new(SHOULDER_RADIUS - 0.09, 0.040 - 0.09);
+    let radius_gradient = inverse_metric * radius_delta;
+    let normal_distance = relative.dot(first.cross(second).normalize()).abs();
+    let interior = projected
+        + radius_gradient * (normal_distance / (1.0 - radius_delta.dot(radius_gradient)).sqrt());
+    if interior.min_element() >= 0.0 && interior.element_sum() <= 1.0 {
+        convex = convex.min(
+            normal_distance * (1.0 - radius_delta.dot(radius_gradient)).sqrt()
+                - (0.09 + radius_delta.dot(projected)),
+        );
     }
-    original + amount * (smoothed - original)
+    let neck = -smooth_union(-torso_distance(index, point), 0.16 - point.x.abs(), 0.04);
+    let neck_blend = 0.03 + 0.04 * smoothstep((point.z.abs() - 0.04) / 0.06);
+    let upper_body = smooth_union(convex, neck, neck_blend);
+    original + amount * (upper_body - original)
 }
 
 fn weights(index: usize, point: Vec3) -> [f32; 4] {
@@ -320,7 +346,7 @@ impl Surface {
                                 let mut fraction = start_distance / (start_distance - end_distance);
                                 let mut lower = 0.0;
                                 let mut upper = 1.0;
-                                for _ in 0..10 {
+                                for _ in 0..16 {
                                     let sample = start.lerp(end, fraction);
                                     if (distance(index, sample) > 0.0) == (start_distance > 0.0) {
                                         lower = fraction;
@@ -464,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn shoulder_smoothing_reduces_surface_normal_variation() {
+    fn analytic_shoulders_reduce_surface_normal_variation() {
         let variation = |index, field: fn(usize, Vec3) -> f32| {
             let mut total = 0.0;
             for side in [-1.0, 1.0] {
@@ -513,13 +539,14 @@ mod tests {
     }
 
     #[test]
-    fn shoulder_tops_fall_outward_without_a_notch() {
+    fn shoulder_tops_fall_outward_with_one_curvature_direction() {
         for index in 0..2 {
             for side in [-1.0, 1.0] {
                 for depth in [-0.04, 0.0, 0.04] {
                     let mut previous = f32::INFINITY;
-                    for step in 0..=220 {
-                        let horizontal = side * (0.16 + step as f32 * 0.001);
+                    let mut previous_slope = f32::INFINITY;
+                    for step in 0..=180 {
+                        let horizontal = side * (0.20 + step as f32 * 0.001);
                         let mut below = (0..140)
                             .map(|step| 0.80 - step as f32 * 0.005)
                             .find(|&height| {
@@ -540,6 +567,14 @@ mod tests {
                             height <= previous + 0.00001,
                             "host {index}, side {side}, depth {depth}, x {horizontal}: {previous} -> {height}"
                         );
+                        if previous.is_finite() {
+                            let slope = (height - previous) / 0.001;
+                            assert!(
+                                slope <= previous_slope + 0.0002,
+                                "curvature reversal: host {index}, side {side}, depth {depth}, x {horizontal}: {previous_slope} -> {slope}"
+                            );
+                            previous_slope = slope;
+                        }
                         previous = height;
                     }
                 }

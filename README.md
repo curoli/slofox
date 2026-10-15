@@ -26,12 +26,11 @@ OBS records the app window and the two audio channels.
   the torso without opening gaps; the surface is generated only at startup.
   Higher armpits and continuously tapered upper arms avoid a low shoulder web
   and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
-  A broader blend along the shoulder tops creates a continuously descending
-  silhouette, while the tighter underarm blend keeps the armpits open.
-  The blend is confined to the upper, inner shoulder so it does not swell
-  the outer upper arm or leave a narrowed section below the shoulder.
-  Local 3D Gaussian smoothing rounds off remaining shoulder ridges before
-  mesh extraction; it runs only during cached surface generation at startup.
+  Analytic convex shoulder envelopes create a continuously descending outline
+  with no reversal of curvature, rather than smoothing a rippled outline.
+  The rounded envelopes join the torso to the tapered upper arms, with a
+  localized lower transition that preserves the higher armpits. Surface
+  generation remains cached at startup, with no per-frame remeshing.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest
