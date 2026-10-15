@@ -17,7 +17,7 @@ pub struct Surface {
 
 const SHOULDER_Y: f32 = 0.55;
 const SHOULDER_RADIUS: f32 = 0.073;
-const SHOULDER_TOP_Y: f32 = 0.6325;
+const SHOULDER_TOP_Y: f32 = SHOULDER_Y + 0.005 + SHOULDER_RADIUS;
 const CHEST_RADIUS_Y: f32 = 0.100;
 pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
@@ -30,8 +30,8 @@ fn elbow(side: f32) -> Vec3 {
     Vec3::new(side * 0.12, -0.40, 0.16)
 }
 
-fn upper_arm(side: f32) -> Vec3 {
-    Vec3::new(side * 0.06, -0.20, 0.075)
+fn arm_start(side: f32) -> Vec3 {
+    Vec3::new(side * 0.04, 0.005, 0.0)
 }
 
 pub fn shoulder(side: f32) -> Vec3 {
@@ -168,15 +168,10 @@ fn smooth_union(first: f32, second: f32, radius: f32) -> f32 {
 
 fn arm_distance(point: Vec3, side: f32) -> f32 {
     let point = point - shoulder(side);
-    let shoulder = Vec3::new(-side * 0.025, 0.005, 0.0);
-    let upper = upper_arm(side);
+    let shoulder = arm_start(side);
     let elbow = elbow(side);
     let wrist = wrist(side);
-    let upper_arm = smooth_union(
-        capsule(point, shoulder, upper, SHOULDER_RADIUS, 0.061),
-        capsule(point, upper, elbow, 0.061, 0.040),
-        0.018,
-    );
+    let upper_arm = capsule(point, shoulder, elbow, SHOULDER_RADIUS, 0.040);
     let lower_arm = capsule(point, elbow, wrist, 0.040, 0.029);
     smooth_union(upper_arm, lower_arm, 0.010)
 }
@@ -186,10 +181,10 @@ fn distance(index: usize, point: Vec3) -> f32 {
         smooth_union(
             torso_distance(index, point),
             arm_distance(point, -1.0),
-            0.045,
+            0.030,
         ),
         arm_distance(point, 1.0),
-        0.045,
+        0.030,
     )
 }
 
@@ -441,9 +436,59 @@ mod tests {
     }
 
     #[test]
+    fn armpits_open_above_the_upper_arm_midpoint() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let point = Vec3::new(side * 0.29, 0.40, 0.06);
+                assert!(distance(index, point) > 0.0, "host {index}, side {side}");
+                let shoulder_join = shoulder(side) + arm_start(side);
+                let attachment = Vec3::new(side * 0.30, shoulder_join.y, 0.0);
+                assert!(distance(index, attachment) < 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn upper_arms_taper_without_a_midpoint_bulge() {
+        for side in [-1.0, 1.0] {
+            let start = arm_start(side);
+            let end = elbow(side);
+            let direction = (end - start).normalize();
+            let tangent = direction.any_orthonormal_vector();
+            let bitangent = direction.cross(tangent);
+            let mut previous_radius = f32::INFINITY;
+            for step in 10..=85 {
+                let fraction = step as f32 / 100.0;
+                let center = shoulder(side) + start.lerp(end, fraction);
+                let expected_radius = SHOULDER_RADIUS + fraction * (0.040 - SHOULDER_RADIUS);
+                let mut largest_radius = 0.0_f32;
+                for segment in 0..32 {
+                    let angle = segment as f32 / 32.0 * std::f32::consts::TAU;
+                    let radial = tangent * angle.cos() + bitangent * angle.sin();
+                    let mut inside = 0.0;
+                    let mut outside = 0.10;
+                    for _ in 0..20 {
+                        let radius = (inside + outside) * 0.5;
+                        if arm_distance(center + radial * radius, side) <= 0.0 {
+                            inside = radius;
+                        } else {
+                            outside = radius;
+                        }
+                    }
+                    let radius = (inside + outside) * 0.5;
+                    assert!((radius - expected_radius).abs() < 0.00001);
+                    largest_radius = largest_radius.max(radius);
+                }
+                assert!(largest_radius <= previous_radius);
+                previous_radius = largest_radius;
+            }
+        }
+    }
+
+    #[test]
     fn elbows_do_not_form_a_rounded_joint_bulge() {
         for side in [-1.0, 1.0] {
-            let upper = upper_arm(side);
+            let upper = arm_start(side);
             let elbow = elbow(side);
             let wrist = wrist(side);
             let normal = (upper - elbow).cross(wrist - elbow).normalize();

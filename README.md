@@ -24,7 +24,9 @@ OBS records the app window and the two audio channels.
   than intersecting ellipsoids, with tapered forearms and a broader shoulder
   profile for host 2. Three-joint GPU skinning blends shoulder gestures into
   the torso without opening gaps; the surface is generated only at startup.
-  Slimmer elbow transitions avoid rounded joint knobs. Host 1's chest has
+  Higher armpits and continuously tapered upper arms avoid a low shoulder web
+  and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
+  Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest
   contours (excluding the soft blending rim); the top covers approximately
