@@ -26,6 +26,8 @@ OBS records the app window and the two audio channels.
   the torso without opening gaps; the surface is generated only at startup.
   Higher armpits and continuously tapered upper arms avoid a low shoulder web
   and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
+  A broader blend along the shoulder tops creates a continuously descending
+  silhouette, while the tighter underarm blend keeps the armpits open.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest

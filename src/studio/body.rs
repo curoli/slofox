@@ -17,7 +17,7 @@ pub struct Surface {
 
 const SHOULDER_Y: f32 = 0.55;
 const SHOULDER_RADIUS: f32 = 0.073;
-const SHOULDER_TOP_Y: f32 = SHOULDER_Y + 0.005 + SHOULDER_RADIUS;
+const SHOULDER_TOP_Y: f32 = 0.623;
 const CHEST_RADIUS_Y: f32 = 0.100;
 pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
@@ -31,7 +31,7 @@ fn elbow(side: f32) -> Vec3 {
 }
 
 fn arm_start(side: f32) -> Vec3 {
-    Vec3::new(side * 0.04, 0.005, 0.0)
+    Vec3::new(side * 0.05, -0.015, 0.0)
 }
 
 pub fn shoulder(side: f32) -> Vec3 {
@@ -177,14 +177,15 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
 }
 
 fn distance(index: usize, point: Vec3) -> f32 {
+    let shoulder_blend = 0.015 + 0.085 * smoothstep((point.y - 0.45) / 0.12);
     smooth_union(
         smooth_union(
             torso_distance(index, point),
             arm_distance(point, -1.0),
-            0.030,
+            shoulder_blend,
         ),
         arm_distance(point, 1.0),
-        0.030,
+        shoulder_blend,
     )
 }
 
@@ -436,10 +437,45 @@ mod tests {
     }
 
     #[test]
+    fn shoulder_tops_fall_outward_without_a_notch() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                for depth in [-0.04, 0.0, 0.04] {
+                    let mut previous = f32::INFINITY;
+                    for step in 0..=220 {
+                        let horizontal = side * (0.16 + step as f32 * 0.001);
+                        let mut below = (0..140)
+                            .map(|step| 0.80 - step as f32 * 0.005)
+                            .find(|&height| {
+                                distance(index, Vec3::new(horizontal, height, depth)) < 0.0
+                            })
+                            .expect("missing shoulder surface");
+                        let mut above = below + 0.005;
+                        for _ in 0..20 {
+                            let height = (below + above) * 0.5;
+                            if distance(index, Vec3::new(horizontal, height, depth)) < 0.0 {
+                                below = height;
+                            } else {
+                                above = height;
+                            }
+                        }
+                        let height = (below + above) * 0.5;
+                        assert!(
+                            height <= previous + 0.00001,
+                            "host {index}, side {side}, depth {depth}, x {horizontal}: {previous} -> {height}"
+                        );
+                        previous = height;
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn armpits_open_above_the_upper_arm_midpoint() {
         for index in 0..2 {
             for side in [-1.0, 1.0] {
-                let point = Vec3::new(side * 0.29, 0.40, 0.06);
+                let point = Vec3::new(side * 0.29, 0.42, 0.06);
                 assert!(distance(index, point) > 0.0, "host {index}, side {side}");
                 let shoulder_join = shoulder(side) + arm_start(side);
                 let attachment = Vec3::new(side * 0.30, shoulder_join.y, 0.0);
