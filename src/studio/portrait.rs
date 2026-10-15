@@ -357,13 +357,18 @@ pub fn teeth() -> Mesh {
 }
 
 pub fn lip(index: usize, upper: bool) -> Mesh {
-    let mut mesh = smile(index);
+    let mut mesh = if upper {
+        Sphere::new(1.0).mesh().uv(32, 16)
+    } else {
+        smile(index)
+    };
     if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
     {
         for position in positions {
             let horizontal = position[0];
             if upper {
+                position[1] += 0.25 * ((1.0 - horizontal.powi(2)).max(0.0).sqrt() - 1.0);
                 position[1] += 0.24 * (-((horizontal.abs() - 0.25) / 0.18).powi(2)).exp();
             } else {
                 position[1] -= 0.12 * (1.0 - horizontal.powi(2));
