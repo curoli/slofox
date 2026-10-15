@@ -99,14 +99,14 @@ pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
 }
 
 pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
-    if index != 0 || depth <= 0.0 || (height - 0.48).abs() >= 0.100 * 1.35 {
+    if index != 0 || depth <= 0.0 || (height - 0.47).abs() >= 0.100 * 1.35 {
         return 0.0;
     }
     let profile = profile(index, height);
     let baseline = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
     let cap = |center: f32| {
         let radial_squared =
-            ((horizontal - center) / 0.095).powi(2) + ((height - 0.48) / 0.100).powi(2);
+            ((horizontal - center) / 0.095).powi(2) + ((height - 0.47) / 0.100).powi(2);
         let radius = radial_squared.sqrt();
         if radius >= 1.35 {
             return 0.0;
@@ -410,7 +410,7 @@ mod tests {
                 for segment in 0..16 {
                     let angle = segment as f32 / 16.0 * std::f32::consts::TAU;
                     let horizontal = center + 0.095 * radius * angle.cos();
-                    let height = 0.48 + 0.100 * radius * angle.sin();
+                    let height = 0.47 + 0.100 * radius * angle.sin();
                     let profile = profile(0, height);
                     let reference = profile.y * (1.0 - (center / profile.x).powi(2)).sqrt();
                     let expected = reference + 0.095 * (1.0 - radius.powi(2)).sqrt();
@@ -419,7 +419,7 @@ mod tests {
             }
             for boundary in [0.75_f32, 1.35] {
                 let horizontal = center;
-                let height = 0.48 + 0.100 * boundary;
+                let height = 0.47 + 0.100 * boundary;
                 let offset = chest_offset(0, horizontal, height, 0.15);
                 let before =
                     (offset - chest_offset(0, horizontal, height - 0.00001, 0.15)) / 0.00001;
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn chest_has_two_subtle_front_contours_and_a_central_valley() {
-        for height in [0.43, 0.46, 0.49] {
+        for height in [0.42, 0.45, 0.48] {
             let center = front(0, 0.0, height);
             let left = front(0, -0.125, height);
             let right = front(0, 0.125, height);
@@ -442,19 +442,24 @@ mod tests {
             assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
             assert!(torso_distance(0, Vec3::new(0.125, height, right)).abs() < 0.000001);
         }
-        let upper_center = front(0, 0.0, 0.52);
-        let upper_contour = front(0, 0.125, 0.52);
+        let upper_center = front(0, 0.0, 0.51);
+        let upper_contour = front(0, 0.125, 0.51);
         assert!(upper_contour > upper_center + 0.025);
         assert!(upper_contour > 0.215 && upper_contour < 0.235);
         let (peak_position, peak_depth) = (1..=190)
             .map(|step| {
                 let horizontal = step as f32 / 1000.0;
-                (horizontal, front(0, horizontal, 0.48))
+                (horizontal, front(0, horizontal, 0.47))
             })
             .max_by(|first, second| first.1.total_cmp(&second.1))
             .unwrap();
         assert!((0.110..0.135).contains(&peak_position));
         assert!((0.230..0.235).contains(&peak_depth));
+        let peak_height = (400..=540)
+            .map(|step| step as f32 / 1000.0)
+            .max_by(|first, second| front(0, 0.125, *first).total_cmp(&front(0, 0.125, *second)))
+            .unwrap();
+        assert!((0.468..0.475).contains(&peak_height));
         for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
             assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
             assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
