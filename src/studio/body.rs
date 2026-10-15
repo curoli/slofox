@@ -108,7 +108,7 @@ pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f
     let vertical = (-((height - 0.48) / 0.095).powi(2)).exp()
         * smoothstep((height - 0.30) / 0.06)
         * (1.0 - smoothstep((height - 0.55) / 0.09));
-    (0.070 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
+    (0.090 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
 }
 
 fn torso_distance(index: usize, point: Vec3) -> f32 {
@@ -382,14 +382,14 @@ mod tests {
             let right = front(0, 0.125, height);
             assert!((left - right).abs() < 0.000001);
             assert!(left > center + 0.020);
-            assert!(left < 0.22);
+            assert!(left < 0.245);
             assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
             assert!(torso_distance(0, Vec3::new(0.125, height, right)).abs() < 0.000001);
         }
         let upper_center = front(0, 0.0, 0.52);
         let upper_contour = front(0, 0.125, 0.52);
         assert!(upper_contour > upper_center + 0.025);
-        assert!(upper_contour > 0.18 && upper_contour < 0.20);
+        assert!(upper_contour > 0.205 && upper_contour < 0.225);
         let (peak_position, peak_depth) = (1..=190)
             .map(|step| {
                 let horizontal = step as f32 / 1000.0;
@@ -398,7 +398,7 @@ mod tests {
             .max_by(|first, second| first.1.total_cmp(&second.1))
             .unwrap();
         assert!((0.110..0.135).contains(&peak_position));
-        assert!((0.203..0.22).contains(&peak_depth));
+        assert!((0.225..0.245).contains(&peak_depth));
         for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
             assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
             assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
