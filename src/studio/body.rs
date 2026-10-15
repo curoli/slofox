@@ -99,16 +99,32 @@ pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
 }
 
 pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
-    if index != 0 {
+    if index != 0 || depth <= 0.0 || (height - 0.48).abs() >= 0.115 * 1.35 {
         return 0.0;
     }
-    let left = (-((horizontal + 0.125) / 0.080).powi(2)).exp();
-    let right = (-((horizontal - 0.125) / 0.080).powi(2)).exp();
-    let center = (-(horizontal / 0.045).powi(2)).exp();
-    let vertical = (-((height - 0.48) / 0.095).powi(2)).exp()
-        * smoothstep((height - 0.30) / 0.06)
-        * (1.0 - smoothstep((height - 0.55) / 0.09));
-    (0.090 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
+    let profile = profile(index, height);
+    let baseline = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
+    let cap = |center: f32| {
+        let radial_squared =
+            ((horizontal - center) / 0.110).powi(2) + ((height - 0.48) / 0.115).powi(2);
+        let radius = radial_squared.sqrt();
+        if radius >= 1.35 {
+            return 0.0;
+        }
+        let reference = profile.y * (1.0 - (center / profile.x).powi(2)).max(0.0).sqrt();
+        let transition = ((radius - 0.75) / 0.60).clamp(0.0, 1.0);
+        let dome = if radius <= 0.75 {
+            (1.0 - radial_squared).sqrt()
+        } else {
+            let height = (1.0_f32 - 0.75_f32.powi(2)).sqrt();
+            let slope = -0.75 / height;
+            height * (2.0 * transition.powi(3) - 3.0 * transition.powi(2) + 1.0)
+                + slope * 0.60 * (transition.powi(3) - 2.0 * transition.powi(2) + transition)
+        };
+        let rim_blend = 1.0 - smoothstep(transition);
+        (reference - baseline) * rim_blend + 0.110 * dome
+    };
+    (cap(-0.125) + cap(0.125)) * smoothstep(depth / 0.06)
 }
 
 fn torso_distance(index: usize, point: Vec3) -> f32 {
@@ -259,7 +275,18 @@ impl Surface {
                             let vertex = *edges.entry(key).or_insert_with(|| {
                                 let (start, start_distance) = grid[key.0];
                                 let (end, end_distance) = grid[key.1];
-                                let fraction = start_distance / (start_distance - end_distance);
+                                let mut fraction = start_distance / (start_distance - end_distance);
+                                let mut lower = 0.0;
+                                let mut upper = 1.0;
+                                for _ in 0..10 {
+                                    let sample = start.lerp(end, fraction);
+                                    if (distance(index, sample) > 0.0) == (start_distance > 0.0) {
+                                        lower = fraction;
+                                    } else {
+                                        upper = fraction;
+                                    }
+                                    fraction = (lower + upper) * 0.5;
+                                }
                                 let point = start.lerp(end, fraction);
                                 let vertex = surface.positions.len() as u32;
                                 let weights = weights(index, point);
@@ -270,15 +297,16 @@ impl Surface {
                                 surface.colors.push(color(index, point, weights));
                                 vertex
                             });
-                            polygon.push(vertex);
+                            let (start, start_distance) = grid[key.0];
+                            let (end, end_distance) = grid[key.1];
+                            let linear_point =
+                                start.lerp(end, start_distance / (start_distance - end_distance));
+                            polygon.push((vertex, linear_point));
                         }
                         if polygon.len() < 3 {
                             continue;
                         }
-                        let center = polygon
-                            .iter()
-                            .map(|&vertex| Vec3::from_array(surface.positions[vertex as usize]))
-                            .sum::<Vec3>()
+                        let center = polygon.iter().map(|&(_, point)| point).sum::<Vec3>()
                             / polygon.len() as f32;
                         let (origin, origin_distance) = grid[corners[tetrahedron[0]]];
                         let offsets: [Vec3; 3] = std::array::from_fn(|axis| {
@@ -294,11 +322,9 @@ impl Surface {
                             .normalize();
                         let tangent = normal.any_orthonormal_vector();
                         let bitangent = normal.cross(tangent);
-                        polygon.sort_by(|&first, &second| {
-                            let first =
-                                Vec3::from_array(surface.positions[first as usize]) - center;
-                            let second =
-                                Vec3::from_array(surface.positions[second as usize]) - center;
+                        polygon.sort_by(|&(_, first), &(_, second)| {
+                            let first = first - center;
+                            let second = second - center;
                             first
                                 .dot(bitangent)
                                 .atan2(first.dot(tangent))
@@ -306,9 +332,9 @@ impl Surface {
                         });
                         for triangle in 1..polygon.len() - 1 {
                             surface.indices.extend_from_slice(&[
-                                polygon[0],
-                                polygon[triangle],
-                                polygon[triangle + 1],
+                                polygon[0].0,
+                                polygon[triangle].0,
+                                polygon[triangle + 1].0,
                             ]);
                         }
                     }
@@ -375,6 +401,33 @@ mod tests {
     }
 
     #[test]
+    fn chest_caps_have_rounded_hemisphere_profiles_and_smooth_rims() {
+        for center in [-0.125, 0.125] {
+            for radius in [0.0_f32, 0.25, 0.5, 0.6] {
+                for segment in 0..16 {
+                    let angle = segment as f32 / 16.0 * std::f32::consts::TAU;
+                    let horizontal = center + 0.110 * radius * angle.cos();
+                    let height = 0.48 + 0.115 * radius * angle.sin();
+                    let profile = profile(0, height);
+                    let reference = profile.y * (1.0 - (center / profile.x).powi(2)).sqrt();
+                    let expected = reference + 0.110 * (1.0 - radius.powi(2)).sqrt();
+                    assert!((front(0, horizontal, height) - expected).abs() < 0.000001);
+                }
+            }
+            for boundary in [0.75_f32, 1.35] {
+                let horizontal = center;
+                let height = 0.48 + 0.115 * boundary;
+                let offset = chest_offset(0, horizontal, height, 0.15);
+                let before =
+                    (offset - chest_offset(0, horizontal, height - 0.00001, 0.15)) / 0.00001;
+                let after =
+                    (chest_offset(0, horizontal, height + 0.00001, 0.15) - offset) / 0.00001;
+                assert!((before - after).abs() < 0.02);
+            }
+        }
+    }
+
+    #[test]
     fn chest_has_two_subtle_front_contours_and_a_central_valley() {
         for height in [0.43, 0.46, 0.49] {
             let center = front(0, 0.0, height);
@@ -382,14 +435,14 @@ mod tests {
             let right = front(0, 0.125, height);
             assert!((left - right).abs() < 0.000001);
             assert!(left > center + 0.020);
-            assert!(left < 0.245);
+            assert!(left < 0.265);
             assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
             assert!(torso_distance(0, Vec3::new(0.125, height, right)).abs() < 0.000001);
         }
         let upper_center = front(0, 0.0, 0.52);
         let upper_contour = front(0, 0.125, 0.52);
         assert!(upper_contour > upper_center + 0.025);
-        assert!(upper_contour > 0.205 && upper_contour < 0.225);
+        assert!(upper_contour > 0.23 && upper_contour < 0.255);
         let (peak_position, peak_depth) = (1..=190)
             .map(|step| {
                 let horizontal = step as f32 / 1000.0;
@@ -398,7 +451,7 @@ mod tests {
             .max_by(|first, second| first.1.total_cmp(&second.1))
             .unwrap();
         assert!((0.110..0.135).contains(&peak_position));
-        assert!((0.225..0.245).contains(&peak_depth));
+        assert!((0.245..0.265).contains(&peak_depth));
         for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
             assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
             assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
@@ -541,7 +594,7 @@ mod tests {
                     vertex_normal.is_finite() && (vertex_normal.length() - 1.0).abs() < 0.00001
                 );
                 assert!(
-                    distance(index, point).abs() < 0.012,
+                    distance(index, point).abs() < 0.0005,
                     "surface sample {point:?}: {}",
                     distance(index, point)
                 );

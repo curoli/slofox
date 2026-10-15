@@ -25,7 +25,8 @@ OBS records the app window and the two audio channels.
   profile for host 2. Three-joint GPU skinning blends shoulder gestures into
   the torso without opening gaps; the surface is generated only at startup.
   Slimmer elbow transitions avoid rounded joint knobs. Host 1's chest has
-  two gentle contours with a shallow central valley, shared by skin and top.
+  two rounded, hemisphere-like contours with a central valley, shared by skin
+  and top.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
