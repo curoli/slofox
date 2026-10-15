@@ -28,6 +28,8 @@ OBS records the app window and the two audio channels.
   and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
   A broader blend along the shoulder tops creates a continuously descending
   silhouette, while the tighter underarm blend keeps the armpits open.
+  The blend is confined to the upper, inner shoulder so it does not swell
+  the outer upper arm or leave a narrowed section below the shoulder.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest

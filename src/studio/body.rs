@@ -16,8 +16,8 @@ pub struct Surface {
 }
 
 const SHOULDER_Y: f32 = 0.55;
-const SHOULDER_RADIUS: f32 = 0.073;
-const SHOULDER_TOP_Y: f32 = 0.623;
+const SHOULDER_RADIUS: f32 = 0.061;
+const SHOULDER_TOP_Y: f32 = 0.620;
 const CHEST_RADIUS_Y: f32 = 0.100;
 pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
@@ -177,7 +177,10 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
 }
 
 fn distance(index: usize, point: Vec3) -> f32 {
-    let shoulder_blend = 0.015 + 0.085 * smoothstep((point.y - 0.45) / 0.12);
+    let shoulder_blend = 0.015
+        + 0.085
+            * smoothstep((point.y - 0.49) / 0.10)
+            * (1.0 - smoothstep((point.x.abs() - 0.32) / 0.05));
     smooth_union(
         smooth_union(
             torso_distance(index, point),
@@ -480,6 +483,46 @@ mod tests {
                 let shoulder_join = shoulder(side) + arm_start(side);
                 let attachment = Vec3::new(side * 0.30, shoulder_join.y, 0.0);
                 assert!(distance(index, attachment) < 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn combined_upper_arm_surface_keeps_a_regular_exterior_taper() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let start = arm_start(side);
+                let end = elbow(side);
+                let direction = (end - start).normalize();
+                let outward = (Vec3::X * side - direction * direction.x * side).normalize();
+                let tangent = direction.cross(outward);
+                for segment in 0..=16 {
+                    let angle = (segment as f32 / 16.0 - 0.5) * std::f32::consts::PI;
+                    let radial = outward * angle.cos() + tangent * angle.sin();
+                    let mut previous_radius = f32::INFINITY;
+                    for step in 5..=85 {
+                        let fraction = step as f32 / 100.0;
+                        let center = shoulder(side) + start.lerp(end, fraction);
+                        let expected = SHOULDER_RADIUS + fraction * (0.040 - SHOULDER_RADIUS);
+                        let mut inside = 0.0;
+                        let mut outside = 0.15;
+                        for _ in 0..20 {
+                            let radius = (inside + outside) * 0.5;
+                            if distance(index, center + radial * radius) <= 0.0 {
+                                inside = radius;
+                            } else {
+                                outside = radius;
+                            }
+                        }
+                        let radius = (inside + outside) * 0.5;
+                        assert!(
+                            (radius - expected).abs() < 0.002,
+                            "host {index}, side {side}, angle {angle}, fraction {fraction}: {radius} vs {expected}"
+                        );
+                        assert!(radius <= previous_radius + 0.00001);
+                        previous_radius = radius;
+                    }
+                }
             }
         }
     }
