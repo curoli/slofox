@@ -129,7 +129,7 @@ pub fn host_motion(elapsed: f32, index: usize, speech: f32) -> (Quat, f32) {
             0.025 * (phase * 0.37).sin(),
             0.012 * (phase * 0.53).sin(),
         ),
-        0.76 + 0.006 * (phase * 1.7).sin(),
+        DESK_SURFACE_Y - body::NAVEL_Y + 0.006 * (phase * 1.7).sin(),
     )
 }
 
@@ -139,7 +139,11 @@ fn host_rest(index: usize) -> Transform {
     } else {
         0.0
     };
-    Transform::from_xyz(if index == 0 { -0.76 } else { 0.76 }, 0.76, depth)
+    Transform::from_xyz(
+        if index == 0 { -0.76 } else { 0.76 },
+        DESK_SURFACE_Y - body::NAVEL_Y,
+        depth,
+    )
 }
 
 pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
@@ -153,7 +157,7 @@ pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
 }
 
 fn hand_parts(side: f32) -> [Transform; 5] {
-    let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+    let wrist = body::wrist(side);
     std::array::from_fn(|index| {
         if index == 0 {
             Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
@@ -813,7 +817,7 @@ pub fn setup(
         Camera3d::default(),
         NoIndirectDrawing,
         Msaa::Sample4,
-        Transform::from_xyz(0.0, 2.12, 4.25).looking_at(Vec3::new(0.0, 1.44, 0.0), Vec3::Y),
+        Transform::from_xyz(0.0, 2.32, 4.25).looking_at(Vec3::new(0.0, 1.64, 0.0), Vec3::Y),
     ));
 }
 
@@ -1245,8 +1249,40 @@ mod tests {
     }
 
     #[test]
+    fn raised_hosts_keep_the_desk_at_navel_height_and_arms_relaxed() {
+        for index in 0..2 {
+            let rest = host_rest(index);
+            assert!((rest.translation.y + body::NAVEL_Y - DESK_SURFACE_Y).abs() < 0.00001);
+            for frame in 0..240 {
+                let (rotation, height) = host_motion(frame as f32 * 0.25, index, 1.0);
+                let host = Transform {
+                    rotation,
+                    translation: Vec3::new(0.0, height, 0.0),
+                    ..rest
+                };
+                let navel = host.transform_point(Vec3::new(
+                    0.0,
+                    body::NAVEL_Y,
+                    body::front(index, 0.0, body::NAVEL_Y),
+                ));
+                assert!((navel.y - DESK_SURFACE_Y).abs() < 0.015);
+            }
+            for side in [-1.0, 1.0] {
+                let bounds = arm_bounds(index, side);
+                let mut arm = Transform::from_translation(body::shoulder(side))
+                    .with_rotation(arm_rotation(0.0, side, 0.0));
+                bounds.keep_above_desk(&rest, &mut arm);
+                let shoulder = rest.transform_point(arm.translation);
+                let wrist = rest.transform_point(arm.transform_point(body::wrist(side)));
+                assert!(shoulder.y - wrist.y > 0.35);
+                assert!((DESK_SURFACE_Y..DESK_SURFACE_Y + 0.12).contains(&wrist.y));
+            }
+        }
+    }
+
+    #[test]
     fn already_clear_arms_do_not_move() {
-        let host = Transform::from_xyz(0.0, 1.0, 0.0);
+        let host = Transform::from_xyz(0.0, 1.3, 0.0);
         let bounds = arm_bounds(0, -1.0);
         let mut arm = Transform::from_xyz(-0.29, 0.55, 0.0);
         let original = arm;

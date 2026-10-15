@@ -391,7 +391,7 @@ pub fn garment(index: usize) -> Mesh {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
             let front = angle.cos().max(0.0);
             let neckline = if index == 0 {
-                0.47 + 0.025 * angle.sin().abs()
+                super::body::CHEST_CENTER_Y + 0.025 * angle.sin().abs()
             } else {
                 0.61 - 0.09 * front.powi(12)
             };

@@ -15,6 +15,21 @@ pub struct Surface {
     colors: Vec<[f32; 4]>,
 }
 
+pub const CHEST_CENTER_Y: f32 = 0.20;
+pub const NAVEL_Y: f32 = 0.10;
+
+pub fn wrist(side: f32) -> Vec3 {
+    Vec3::new(-side * 0.01, -0.38, 0.46)
+}
+
+fn elbow(side: f32) -> Vec3 {
+    Vec3::new(side * 0.12, -0.40, 0.16)
+}
+
+fn upper_arm(side: f32) -> Vec3 {
+    Vec3::new(side * 0.06, -0.20, 0.075)
+}
+
 pub fn shoulder(side: f32) -> Vec3 {
     Vec3::new(side * 0.29, 0.55, 0.0)
 }
@@ -99,14 +114,14 @@ pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
 }
 
 pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
-    if index != 0 || depth <= 0.0 || (height - 0.47).abs() >= 0.100 * 1.35 {
+    if index != 0 || depth <= 0.0 || (height - CHEST_CENTER_Y).abs() >= 0.100 * 1.35 {
         return 0.0;
     }
     let profile = profile(index, height);
     let baseline = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
     let cap = |center: f32| {
         let radial_squared =
-            ((horizontal - center) / 0.095).powi(2) + ((height - 0.47) / 0.100).powi(2);
+            ((horizontal - center) / 0.095).powi(2) + ((height - CHEST_CENTER_Y) / 0.100).powi(2);
         let radius = radial_squared.sqrt();
         if radius >= 1.35 {
             return 0.0;
@@ -132,7 +147,7 @@ fn torso_distance(index: usize, point: Vec3) -> f32 {
     let depth = point.z - chest_offset(index, point.x, point.y, point.z);
     let radial =
         (Vec2::new(point.x / profile.x, depth / profile.y).length() - 1.0) * profile.min_element();
-    radial.max(0.34 - point.y).max(point.y - 0.83)
+    radial.max(-0.10 - point.y).max(point.y - 0.83)
 }
 
 fn capsule(point: Vec3, start: Vec3, end: Vec3, start_radius: f32, end_radius: f32) -> f32 {
@@ -150,9 +165,9 @@ fn smooth_union(first: f32, second: f32, radius: f32) -> f32 {
 fn arm_distance(point: Vec3, side: f32) -> f32 {
     let point = point - shoulder(side);
     let shoulder = Vec3::new(-side * 0.025, 0.005, 0.0);
-    let upper = Vec3::new(side * 0.12, -0.055, 0.075);
-    let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
-    let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+    let upper = upper_arm(side);
+    let elbow = elbow(side);
+    let wrist = wrist(side);
     let upper_arm = smooth_union(
         capsule(point, shoulder, upper, 0.073, 0.061),
         capsule(point, upper, elbow, 0.061, 0.040),
@@ -213,9 +228,9 @@ fn color(index: usize, point: Vec3, weights: [f32; 4]) -> [f32; 4] {
 
 impl Surface {
     fn generate(index: usize) -> Self {
-        let origin = Vec3::new(-0.648, 0.300, -0.228);
-        let step = 0.012;
-        let dimensions = [109, 47, 66];
+        let origin = Vec3::new(-0.648, -0.132, -0.228);
+        let step = 0.013;
+        let dimensions = [101, 77, 62];
         let grid_index = |horizontal: usize, vertical: usize, depth: usize| {
             horizontal + dimensions[0] * (vertical + dimensions[1] * depth)
         };
@@ -350,7 +365,7 @@ impl Surface {
         }
         for (point, normal) in surface.positions.iter().zip(&mut surface.normals) {
             let point = Vec3::from_array(*point);
-            if (0.36..0.81).contains(&point.y) {
+            if (-0.08..0.81).contains(&point.y) {
                 *normal = surface_normal(index, point).to_array();
             }
         }
@@ -389,11 +404,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chest_sits_below_shoulders_with_half_coverage() {
+        let chest_top = CHEST_CENTER_Y + 0.100 * 1.35;
+        let chest_bottom = CHEST_CENTER_Y - 0.100 * 1.35;
+        let chest_height = chest_top - chest_bottom;
+        let shoulder_top = surface(0)
+            .positions
+            .iter()
+            .filter(|point| (0.24..0.34).contains(&point[0].abs()) && point[2].abs() < 0.07)
+            .map(|point| point[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let gap = shoulder_top - chest_top;
+        assert!(gap > chest_height && gap < chest_height * 1.15);
+        let garment = super::super::portrait::garment(0);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            garment.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing garment positions")
+        };
+        for side in [-1.0_f32, 1.0] {
+            let neckline = positions
+                .iter()
+                .filter(|point| (point[0] - side * 0.125).abs() < 0.015 && point[2] > 0.0)
+                .map(|point| point[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            let coverage = (neckline - chest_bottom) / chest_height;
+            assert!((0.45..0.60).contains(&coverage), "coverage: {coverage}");
+        }
+    }
+
+    #[test]
     fn elbows_do_not_form_a_rounded_joint_bulge() {
         for side in [-1.0, 1.0] {
-            let upper = Vec3::new(side * 0.12, -0.055, 0.075);
-            let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
-            let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+            let upper = upper_arm(side);
+            let elbow = elbow(side);
+            let wrist = wrist(side);
             let normal = (upper - elbow).cross(wrist - elbow).normalize();
             let center = shoulder(side) + elbow;
             for direction in [-1.0, 1.0] {
@@ -410,7 +455,7 @@ mod tests {
                 for segment in 0..16 {
                     let angle = segment as f32 / 16.0 * std::f32::consts::TAU;
                     let horizontal = center + 0.095 * radius * angle.cos();
-                    let height = 0.47 + 0.100 * radius * angle.sin();
+                    let height = CHEST_CENTER_Y + 0.100 * radius * angle.sin();
                     let profile = profile(0, height);
                     let reference = profile.y * (1.0 - (center / profile.x).powi(2)).sqrt();
                     let expected = reference + 0.095 * (1.0 - radius.powi(2)).sqrt();
@@ -419,7 +464,7 @@ mod tests {
             }
             for boundary in [0.75_f32, 1.35] {
                 let horizontal = center;
-                let height = 0.47 + 0.100 * boundary;
+                let height = CHEST_CENTER_Y + 0.100 * boundary;
                 let offset = chest_offset(0, horizontal, height, 0.15);
                 let before =
                     (offset - chest_offset(0, horizontal, height - 0.00001, 0.15)) / 0.00001;
@@ -432,7 +477,11 @@ mod tests {
 
     #[test]
     fn chest_has_two_subtle_front_contours_and_a_central_valley() {
-        for height in [0.42, 0.45, 0.48] {
+        for height in [
+            CHEST_CENTER_Y - 0.05,
+            CHEST_CENTER_Y - 0.02,
+            CHEST_CENTER_Y + 0.01,
+        ] {
             let center = front(0, 0.0, height);
             let left = front(0, -0.125, height);
             let right = front(0, 0.125, height);
@@ -442,28 +491,28 @@ mod tests {
             assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
             assert!(torso_distance(0, Vec3::new(0.125, height, right)).abs() < 0.000001);
         }
-        let upper_center = front(0, 0.0, 0.51);
-        let upper_contour = front(0, 0.125, 0.51);
+        let upper_center = front(0, 0.0, CHEST_CENTER_Y + 0.04);
+        let upper_contour = front(0, 0.125, CHEST_CENTER_Y + 0.04);
         assert!(upper_contour > upper_center + 0.025);
-        assert!(upper_contour > 0.215 && upper_contour < 0.235);
+        assert!(upper_contour > 0.205 && upper_contour < 0.225);
         let (peak_position, peak_depth) = (1..=190)
             .map(|step| {
                 let horizontal = step as f32 / 1000.0;
-                (horizontal, front(0, horizontal, 0.47))
+                (horizontal, front(0, horizontal, CHEST_CENTER_Y))
             })
             .max_by(|first, second| first.1.total_cmp(&second.1))
             .unwrap();
         assert!((0.110..0.135).contains(&peak_position));
-        assert!((0.230..0.235).contains(&peak_depth));
-        let peak_height = (400..=540)
-            .map(|step| step as f32 / 1000.0)
+        assert!((0.215..0.225).contains(&peak_depth));
+        let peak_height = (-70..=70)
+            .map(|step| CHEST_CENTER_Y + step as f32 / 1000.0)
             .max_by(|first, second| front(0, 0.125, *first).total_cmp(&front(0, 0.125, *second)))
             .unwrap();
-        assert!((0.468..0.475).contains(&peak_height));
+        assert!((peak_height - CHEST_CENTER_Y).abs() < 0.015);
         for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
-            assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
+            assert_eq!(chest_offset(0, horizontal, CHEST_CENTER_Y, -0.15), 0.0);
             assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
-            assert_eq!(chest_offset(1, horizontal, 0.46, 0.15), 0.0);
+            assert_eq!(chest_offset(1, horizontal, CHEST_CENTER_Y, 0.15), 0.0);
         }
         let garment = super::super::portrait::garment(0);
         let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -473,7 +522,7 @@ mod tests {
         };
         for position in positions {
             let point = Vec3::from_array(*position);
-            if point.y >= 0.35 && point.z > 0.0 {
+            if point.y > -0.09 && point.z > 0.0 {
                 assert!(
                     torso_distance(0, point) > 0.0,
                     "garment cuts into chest: {point:?}"
@@ -485,8 +534,8 @@ mod tests {
     #[test]
     fn forearms_taper_from_the_single_elbow_to_the_wrist_without_an_extra_joint() {
         for side in [-1.0, 1.0] {
-            let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
-            let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+            let elbow = elbow(side);
+            let wrist = wrist(side);
             let direction = (wrist - elbow).normalize();
             let tangent = direction.any_orthonormal_vector();
             let bitangent = direction.cross(tangent);

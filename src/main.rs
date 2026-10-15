@@ -407,17 +407,17 @@ fn move_camera(
     }
     let portrait = session.options.portrait_preview;
     let target = if portrait {
-        Vec3::new(0.0, 1.73, 0.0)
+        Vec3::new(0.0, 1.96, 0.0)
     } else {
-        Vec3::new(0.0, 1.44, 0.0)
+        Vec3::new(0.0, 1.64, 0.0)
     };
     let position = match (portrait, session.camera) {
-        (true, 1) => Vec3::new(-1.25, 1.82, 2.20),
-        (true, 2) => Vec3::new(1.25, 1.82, 2.20),
-        (true, _) => Vec3::new(0.0, 1.82, 2.20),
-        (false, 1) => Vec3::new(-2.3, 2.05, 3.7),
-        (false, 2) => Vec3::new(2.3, 2.05, 3.7),
-        _ => Vec3::new(0.0, 2.12, 4.25),
+        (true, 1) => Vec3::new(-1.25, 2.13, 2.20),
+        (true, 2) => Vec3::new(1.25, 2.13, 2.20),
+        (true, _) => Vec3::new(0.0, 2.13, 2.20),
+        (false, 1) => Vec3::new(-2.3, 2.25, 3.7),
+        (false, 2) => Vec3::new(2.3, 2.25, 3.7),
+        _ => Vec3::new(0.0, 2.32, 4.25),
     };
     for mut transform in &mut cameras {
         let amount = 1.0 - (-time.delta_secs() * 1.3).exp();

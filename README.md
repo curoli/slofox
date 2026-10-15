@@ -26,7 +26,8 @@ OBS records the app window and the two audio channels.
   the torso without opening gaps; the surface is generated only at startup.
   Slimmer elbow transitions avoid rounded joint knobs. Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
-  and top.
+  and top. The chest sits lower, with a shoulder-to-chest gap slightly greater
+  than its full height; the top covers approximately the lower half.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
@@ -36,6 +37,8 @@ OBS records the app window and the two audio channels.
   bounds, without a physics engine.
   Host 1 sits farther back so the chest and top stay behind the desk edge
   during leaning and breathing, while both hands still reach the tabletop.
+  Both hosts sit higher, with the desk at navel height and their upper arms
+  hanging down into a relaxed, bent-elbow posture.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
   The rounded tabletop and inset apron are closed meshes, avoiding overlapping
