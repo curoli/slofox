@@ -358,7 +358,7 @@ impl Surface {
     }
 
     pub fn mesh(&self) -> Mesh {
-        Mesh::new(
+        let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::default(),
         )
@@ -370,7 +370,10 @@ impl Surface {
             VertexAttributeValues::Uint16x4(self.joints.clone()),
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, self.weights.clone())
-        .with_inserted_indices(Indices::U32(self.indices.clone()))
+        .with_inserted_indices(Indices::U32(self.indices.clone()));
+        mesh.generate_skinned_mesh_bounds()
+            .expect("body mesh must have valid joint indices and weights");
+        mesh
     }
 }
 

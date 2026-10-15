@@ -184,6 +184,7 @@ fn arm_bounds(index: usize, side: f32) -> ArmBounds {
 
 struct Palette {
     skin: Handle<StandardMaterial>,
+    body: Handle<StandardMaterial>,
     hair: Handle<StandardMaterial>,
     streak: Handle<StandardMaterial>,
     shirt: Handle<StandardMaterial>,
@@ -580,7 +581,7 @@ fn host(
         commands,
         Some(root),
         &skin,
-        &palette.white,
+        &palette.body,
         Transform::default(),
     );
     commands.entity(surface).insert((
@@ -702,11 +703,13 @@ pub fn setup(
     );
 
     let white = matte(&mut materials, Color::srgb_u8(246, 239, 220));
+    let body_material = matte(&mut materials, Color::WHITE);
     let dark = matte(&mut materials, Color::srgb_u8(32, 21, 26));
     for index in 0..2 {
         let palette = if index == 0 {
             Palette {
                 skin: matte(&mut materials, body::skin_color(0)),
+                body: body_material.clone(),
                 hair: matte(&mut materials, Color::srgb_u8(18, 22, 23)),
                 streak: matte(&mut materials, Color::srgb_u8(30, 31, 30)),
                 shirt: matte(&mut materials, Color::srgb_u8(41, 55, 63)),
@@ -719,6 +722,7 @@ pub fn setup(
         } else {
             Palette {
                 skin: matte(&mut materials, body::skin_color(1)),
+                body: body_material.clone(),
                 hair: matte(&mut materials, Color::srgb_u8(70, 53, 41)),
                 streak: matte(&mut materials, Color::srgb_u8(123, 106, 86)),
                 shirt: matte(&mut materials, Color::srgb_u8(166, 141, 111)),
@@ -816,6 +820,148 @@ pub fn setup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_body_material_preserves_full_skin_vertex_colors() {
+        use bevy::mesh::VertexAttributeValues;
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<(
+            &Mesh3d,
+            &MeshMaterial3d<StandardMaterial>,
+            &ChildOf,
+            &SkinnedMesh,
+        ), With<DynamicSkinnedMeshBounds>>();
+        let mut count = 0;
+        for (mesh, material, parent, _) in query.iter(world) {
+            let host = world.get::<Host>(parent.parent()).unwrap();
+            let material = world
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material.0)
+                .unwrap();
+            assert_eq!(material.base_color.to_linear(), LinearRgba::WHITE);
+            let mesh = world.resource::<Assets<Mesh>>().get(&mesh.0).unwrap();
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing positions")
+            };
+            let Some(VertexAttributeValues::Float32x4(colors)) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+            else {
+                panic!("missing colors")
+            };
+            let skin = body::skin_color(host.index).to_linear();
+            let mut neck_vertices = 0;
+            for (position, color) in positions.iter().zip(colors) {
+                if position[1] > 0.67 {
+                    assert_eq!(*color, [skin.red, skin.green, skin.blue, 1.0]);
+                    neck_vertices += 1;
+                }
+            }
+            assert!(neck_vertices > 0);
+            assert!(mesh.skinned_mesh_bounds().is_some());
+            count += 1;
+        }
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn dynamic_skin_bounds_enclose_vertices_that_escape_static_bounds() {
+        use bevy::{
+            ecs::system::SystemState, mesh::skinning::entity_aabb_from_skinned_mesh_bounds,
+        };
+
+        let mut escaped_static_bounds = false;
+        for index in 0..2 {
+            let surface = body::surface(index);
+            let mesh = surface.mesh();
+            let generated = mesh.skinned_mesh_bounds().expect("missing skin bounds");
+            assert_eq!(generated.aabbs.len(), 3);
+            let (static_min, static_max) = surface.positions.iter().fold(
+                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                |(minimum, maximum), point| {
+                    let point = Vec3::from_array(*point);
+                    (minimum.min(point), maximum.max(point))
+                },
+            );
+            let mut world = World::new();
+            let joints: Vec<_> = (0..3)
+                .map(|_| world.spawn(GlobalTransform::IDENTITY).id())
+                .collect();
+            let skinned_mesh = SkinnedMesh {
+                joints,
+                ..default()
+            };
+            let inverse_bindposes = SkinnedMeshInverseBindposes::from(vec![
+                Mat4::IDENTITY,
+                Mat4::from_translation(-body::shoulder(-1.0)),
+                Mat4::from_translation(-body::shoulder(1.0)),
+            ]);
+            let mut query_state = SystemState::<Query<&GlobalTransform>>::new(&mut world);
+            let arm_bounds = [arm_bounds(index, -1.0), arm_bounds(index, 1.0)];
+            for frame in 0..120 {
+                let elapsed = frame as f32 * 0.5;
+                for speech_step in 0..=10 {
+                    let speech = speech_step as f32 / 10.0;
+                    let (rotation, height) = host_motion(elapsed, index, speech);
+                    let mut host = host_rest(index).with_rotation(rotation);
+                    host.translation.y = height;
+                    let root = host.to_matrix();
+                    let joints: [Mat4; 3] = std::array::from_fn(|joint| {
+                        if joint == 0 {
+                            return root;
+                        }
+                        let side = if joint == 1 { -1.0 } else { 1.0 };
+                        let mut arm =
+                            Transform::from_translation(body::shoulder(side)).with_rotation(
+                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                            );
+                        arm_bounds[joint - 1].keep_above_desk(&host, &mut arm);
+                        root * arm.to_matrix()
+                    });
+                    for (entity, matrix) in skinned_mesh.joints.iter().zip(joints) {
+                        world
+                            .entity_mut(*entity)
+                            .insert(GlobalTransform::from(matrix));
+                    }
+                    let bounds = entity_aabb_from_skinned_mesh_bounds(
+                        &query_state.get(&world).unwrap(),
+                        &mesh,
+                        &skinned_mesh,
+                        &inverse_bindposes,
+                        Some(&GlobalTransform::from(root)),
+                    )
+                    .unwrap();
+                    let matrices: [Mat4; 3] = std::array::from_fn(|joint| {
+                        root.inverse() * joints[joint] * inverse_bindposes[joint]
+                    });
+                    let minimum = Vec3::from(bounds.min) - Vec3::splat(0.00001);
+                    let maximum = Vec3::from(bounds.max) + Vec3::splat(0.00001);
+                    for (point, weights) in surface.positions.iter().zip(&surface.weights) {
+                        let point = Vec3::from_array(*point);
+                        let skinned: Vec3 = (0..3)
+                            .map(|joint| matrices[joint].transform_point3(point) * weights[joint])
+                            .sum();
+                        assert!(
+                            skinned.cmpge(minimum).all() && skinned.cmple(maximum).all(),
+                            "host {index}, time {elapsed}, speech {speech}: {skinned:?}"
+                        );
+                        escaped_static_bounds |=
+                            skinned.cmplt(static_min - Vec3::splat(0.0001)).any()
+                                || skinned.cmpgt(static_max + Vec3::splat(0.0001)).any();
+                    }
+                }
+            }
+        }
+        assert!(escaped_static_bounds);
+    }
 
     #[test]
     fn chest_and_top_stay_behind_the_desk_while_hands_still_reach_it() {
