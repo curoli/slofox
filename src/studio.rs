@@ -1,7 +1,13 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use bevy::{prelude::*, render::view::NoIndirectDrawing};
+use bevy::{
+    camera::visibility::DynamicSkinnedMeshBounds,
+    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+    prelude::*,
+    render::view::NoIndirectDrawing,
+};
 
+mod body;
 mod desk;
 mod portrait;
 mod sculpt;
@@ -83,7 +89,8 @@ const ARM_CLEARANCE: f32 = 0.005;
 
 #[derive(Component)]
 pub struct ArmBounds {
-    parts: [Transform; 8],
+    parts: [Transform; 5],
+    vertices: Vec<Vec3>,
 }
 
 impl ArmBounds {
@@ -96,6 +103,11 @@ impl ArmBounds {
                 let extent = Vec3::new(matrix.x_axis.y, matrix.y_axis.y, matrix.z_axis.y).length();
                 matrix.w_axis.y - extent
             })
+            .chain(
+                self.vertices
+                    .iter()
+                    .map(|vertex| parent.transform_point3(*vertex).y),
+            )
             .fold(f32::INFINITY, f32::min)
     }
 
@@ -131,20 +143,34 @@ pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
     )
 }
 
-fn arm_parts(side: f32) -> [Transform; 8] {
-    let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
+fn hand_parts(side: f32) -> [Transform; 5] {
     let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
-    std::array::from_fn(|index| match index {
-        0 => limb_transform(Vec3::ZERO, elbow, 0.066),
-        1 => Transform::from_translation(elbow).with_scale(Vec3::splat(0.048)),
-        2 => limb_transform(elbow, wrist, 0.047),
-        3 => Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
-            .with_scale(Vec3::new(0.052, 0.031, 0.088)),
-        _ => Transform::from_translation(
-            wrist + Vec3::new(((index - 4) as f32 - 1.5) * 0.021, -0.002, 0.126),
-        )
-        .with_scale(Vec3::new(0.011, 0.018, 0.033)),
+    std::array::from_fn(|index| {
+        if index == 0 {
+            Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
+                .with_scale(Vec3::new(0.052, 0.031, 0.088))
+        } else {
+            Transform::from_translation(
+                wrist + Vec3::new(((index - 1) as f32 - 1.5) * 0.021, -0.002, 0.126),
+            )
+            .with_scale(Vec3::new(0.011, 0.018, 0.033))
+        }
     })
+}
+
+fn arm_bounds(index: usize, side: f32) -> ArmBounds {
+    let surface = body::surface(index);
+    let joint = if side < 0.0 { 1 } else { 2 };
+    ArmBounds {
+        parts: hand_parts(side),
+        vertices: surface
+            .positions
+            .iter()
+            .zip(&surface.weights)
+            .filter(|(_, weights)| weights[joint] > 0.0)
+            .map(|(point, _)| Vec3::from_array(*point) - body::shoulder(side))
+            .collect(),
+    }
 }
 
 struct Palette {
@@ -250,6 +276,7 @@ fn host(
     meshes: &mut Assets<Mesh>,
     geometry: &Geometry,
     palette: &Palette,
+    bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
     index: usize,
 ) {
     let portrait = portrait::Portrait::for_host(index);
@@ -268,35 +295,6 @@ fn host(
         &palette.white,
         Transform::default(),
     );
-    if index == 0 {
-        ellipsoid(
-            commands,
-            geometry,
-            root,
-            &palette.skin,
-            Vec3::new(0.0, 0.52, -0.012),
-            Vec3::new(0.27, 0.12, 0.135),
-        );
-    } else {
-        ellipsoid(
-            commands,
-            geometry,
-            root,
-            &palette.skin,
-            Vec3::new(0.0, 0.57, 0.005),
-            Vec3::new(0.095, 0.11, 0.125),
-        );
-    }
-    if index == 0 {
-        ellipsoid(
-            commands,
-            geometry,
-            root,
-            &palette.skin,
-            Vec3::new(0.0, 0.56, 0.0),
-            Vec3::new(0.31, 0.13, 0.14),
-        );
-    }
     if index == 1 {
         for side in [-1.0, 1.0] {
             let collar = meshes.add(portrait::collar(side));
@@ -309,24 +307,17 @@ fn host(
             );
         }
         for button in 0..4 {
+            let height = 0.15 + button as f32 * 0.1;
             ellipsoid(
                 commands,
                 geometry,
                 root,
                 &palette.white,
-                Vec3::new(0.0, 0.15 + button as f32 * 0.1, 0.175),
+                Vec3::new(0.0, height, body::front(index, 0.0, height) + 0.010),
                 Vec3::splat(0.008),
             );
         }
     }
-    ellipsoid(
-        commands,
-        geometry,
-        root,
-        &palette.skin,
-        Vec3::new(0.0, 0.67, 0.0),
-        Vec3::new(0.074, 0.13, 0.08),
-    );
 
     let head_rest = Transform::from_xyz(0.0, 0.74, 0.0);
     let head = commands.spawn((head_rest, Visibility::default())).id();
@@ -559,28 +550,48 @@ fn host(
         }
     }
 
+    let mut joints = vec![root];
+    let mut inverse_bindposes = vec![Mat4::IDENTITY];
     for side in [-1.0, 1.0] {
-        let arm_rest = Transform::from_xyz(side * 0.29, 0.55, 0.0);
+        let arm_rest = Transform::from_translation(body::shoulder(side));
         let arm = commands.spawn((arm_rest, Visibility::default())).id();
         commands.entity(root).add_child(arm);
         animated(commands, arm, index, PartKind::Arm(side), arm_rest);
-        let parts = arm_parts(side);
-        for (part, transform) in parts.iter().enumerate() {
-            let material = if index == 1 && part == 0 {
-                &palette.shirt
-            } else {
-                &palette.skin
-            };
-            object(commands, Some(arm), &geometry.sphere, material, *transform);
+        for transform in hand_parts(side) {
+            object(
+                commands,
+                Some(arm),
+                &geometry.sphere,
+                &palette.skin,
+                transform,
+            );
         }
-        commands.entity(arm).insert(ArmBounds { parts });
+        commands.entity(arm).insert(arm_bounds(index, side));
+        joints.push(arm);
+        inverse_bindposes.push(Mat4::from_translation(-body::shoulder(side)));
     }
+    let skin = meshes.add(body::surface(index).mesh());
+    let surface = object(
+        commands,
+        Some(root),
+        &skin,
+        &palette.white,
+        Transform::default(),
+    );
+    commands.entity(surface).insert((
+        SkinnedMesh {
+            inverse_bindposes: bindposes.add(inverse_bindposes),
+            joints,
+        },
+        DynamicSkinnedMeshBounds,
+    ));
 }
 
 pub fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
 ) {
     let geometry = Geometry {
         sphere: meshes.add(Sphere::new(1.0).mesh().uv(24, 16)),
@@ -690,7 +701,7 @@ pub fn setup(
     for index in 0..2 {
         let palette = if index == 0 {
             Palette {
-                skin: matte(&mut materials, Color::srgb_u8(202, 145, 103)),
+                skin: matte(&mut materials, body::skin_color(0)),
                 hair: matte(&mut materials, Color::srgb_u8(18, 22, 23)),
                 streak: matte(&mut materials, Color::srgb_u8(30, 31, 30)),
                 shirt: matte(&mut materials, Color::srgb_u8(41, 55, 63)),
@@ -702,7 +713,7 @@ pub fn setup(
             }
         } else {
             Palette {
-                skin: matte(&mut materials, Color::srgb_u8(215, 171, 150)),
+                skin: matte(&mut materials, body::skin_color(1)),
                 hair: matte(&mut materials, Color::srgb_u8(70, 53, 41)),
                 streak: matte(&mut materials, Color::srgb_u8(123, 106, 86)),
                 shirt: matte(&mut materials, Color::srgb_u8(166, 141, 111)),
@@ -713,7 +724,14 @@ pub fn setup(
                 dark: dark.clone(),
             }
         };
-        host(&mut commands, &mut meshes, &geometry, &palette, index);
+        host(
+            &mut commands,
+            &mut meshes,
+            &geometry,
+            &palette,
+            &mut bindposes,
+            index,
+        );
         let horizontal = if index == 0 { -0.76 } else { 0.76 };
         object(
             &mut commands,
@@ -798,9 +816,7 @@ mod tests {
     fn complete_arms_clear_the_desk_during_breathing_leaning_and_gestures() {
         for index in 0..2 {
             for side in [-1.0, 1.0] {
-                let bounds = ArmBounds {
-                    parts: arm_parts(side),
-                };
+                let bounds = arm_bounds(index, side);
                 for frame in 0..960 {
                     let elapsed = frame as f32 * 0.125;
                     for speech_step in 0..=10 {
@@ -830,13 +846,52 @@ mod tests {
     }
 
     #[test]
+    fn blended_skin_vertices_clear_the_desk_during_gestures() {
+        for index in 0..2 {
+            let surface = body::surface(index);
+            let bounds = [arm_bounds(index, -1.0), arm_bounds(index, 1.0)];
+            for frame in 0..120 {
+                let elapsed = frame as f32 * 0.5;
+                for speech_step in 0..=10 {
+                    let speech = speech_step as f32 / 10.0;
+                    let (rotation, height) = host_motion(elapsed, index, speech);
+                    let host = Transform::from_xyz(0.0, height, 0.0).with_rotation(rotation);
+                    let matrices: [Mat4; 2] = std::array::from_fn(|joint| {
+                        let side = if joint == 0 { -1.0 } else { 1.0 };
+                        let mut arm =
+                            Transform::from_translation(body::shoulder(side)).with_rotation(
+                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                            );
+                        bounds[joint].keep_above_desk(&host, &mut arm);
+                        host.to_matrix()
+                            * arm.to_matrix()
+                            * Mat4::from_translation(-body::shoulder(side))
+                    });
+                    for (point, weights) in surface.positions.iter().zip(&surface.weights) {
+                        if weights[1] + weights[2] == 0.0 {
+                            continue;
+                        }
+                        let point = Vec3::from_array(*point);
+                        let skinned = host.transform_point(point) * weights[0]
+                            + matrices[0].transform_point3(point) * weights[1]
+                            + matrices[1].transform_point3(point) * weights[2];
+                        assert!(skinned.is_finite());
+                        assert!(
+                            skinned.y >= DESK_SURFACE_Y + ARM_CLEARANCE - 0.00001,
+                            "host {index}, time {elapsed}, speech {speech}: {point:?} -> {skinned:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn correction_accounts_for_rotated_nonuniform_parent_and_is_idempotent() {
         let host = Transform::from_xyz(0.0, 0.72, 0.0)
             .with_rotation(Quat::from_euler(EulerRot::XYZ, 0.15, 0.2, -0.12))
             .with_scale(Vec3::new(1.1, 0.9, 1.2));
-        let bounds = ArmBounds {
-            parts: arm_parts(1.0),
-        };
+        let bounds = arm_bounds(0, 1.0);
         let mut arm = Transform::from_xyz(0.29, 0.55, 0.0);
         assert!(bounds.lowest_y(&host, &arm) < DESK_SURFACE_Y);
         bounds.keep_above_desk(&host, &mut arm);
@@ -977,9 +1032,7 @@ mod tests {
     #[test]
     fn already_clear_arms_do_not_move() {
         let host = Transform::from_xyz(0.0, 1.0, 0.0);
-        let bounds = ArmBounds {
-            parts: arm_parts(-1.0),
-        };
+        let bounds = arm_bounds(0, -1.0);
         let mut arm = Transform::from_xyz(-0.29, 0.55, 0.0);
         let original = arm;
         bounds.keep_above_desk(&host, &mut arm);

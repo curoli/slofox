@@ -20,12 +20,17 @@ OBS records the app window and the two audio channels.
   of keeping a fixed smile curve with raised tips.
   Individual lip contours, separate tooth crowns and fine crown-hair strands
   add detail without photo textures.
+  Neck, shoulders and arms share one smooth, connected skin surface rather
+  than intersecting ellipsoids, with tapered forearms and a broader shoulder
+  profile for host 2. Three-joint GPU skinning blends shoulder gestures into
+  the torso without opening gaps; the surface is generated only at startup.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
   Arms, hands and fingers stay above the desk surface during these movements
-  using a lightweight geometric constraint, without a physics engine.
+  using a lightweight geometric constraint over arm-surface vertices and hand
+  bounds, without a physics engine.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
   The rounded tabletop and inset apron are closed meshes, avoiding overlapping
