@@ -20,12 +20,38 @@ OBS records the app window and the two audio channels.
   of keeping a fixed smile curve with raised tips.
   Individual lip contours, separate tooth crowns and fine crown-hair strands
   add detail without photo textures.
+  Neck, shoulders and arms share one smooth, connected skin surface rather
+  than intersecting ellipsoids, with tapered forearms and a broader shoulder
+  profile for host 2. Three-joint GPU skinning blends shoulder gestures into
+  the torso without opening gaps; the surface is generated only at startup.
+  Higher armpits and continuously tapered upper arms avoid a low shoulder web
+  and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
+  Analytic convex shoulder envelopes create a continuously descending outline
+  with no reversal of curvature, rather than smoothing a rippled outline.
+  The rounded envelopes join the torso to the tapered upper arms, with a
+  localized lower transition that preserves the higher armpits. Surface
+  generation remains cached at startup, with no per-frame remeshing.
+  The neck root tapers without an added collar-like bulge, and the full torso
+  contour is retained below the armpits rather than pinched by the shoulder patch.
+  Heads and upper necks sit 25 mm lower, retaining their original overlap.
+  Local filtering softens the front shoulder surfaces without changing the
+  convex top outline, underarm clearance or torso width.
+  Host 1's chest has
+  two rounded, hemisphere-like contours with a central valley, shared by skin
+  and top. The shoulder-to-chest gap equals the height of the rounded chest
+  contours (excluding the soft blending rim); the top covers approximately
+  the lower half.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
   Arms, hands and fingers stay above the desk surface during these movements
-  using a lightweight geometric constraint, without a physics engine.
+  using a lightweight geometric constraint over arm-surface vertices and hand
+  bounds, without a physics engine.
+  Host 1 sits farther back so the chest and top stay behind the desk edge
+  during leaning and breathing, while both hands still reach the tabletop.
+  Both hosts sit higher, with the desk at navel height and their upper arms
+  hanging down into a relaxed, bent-elbow posture.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
   The rounded tabletop and inset apron are closed meshes, avoiding overlapping

@@ -391,15 +391,18 @@ pub fn garment(index: usize) -> Mesh {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
             let front = angle.cos().max(0.0);
             let neckline = if index == 0 {
-                0.47 + 0.025 * angle.sin().abs()
+                super::body::CHEST_CENTER_Y + 0.025 * angle.sin().abs()
             } else {
                 0.61 - 0.09 * front.powi(12)
             };
             let height = -0.10 + progress * (neckline + 0.10);
-            let width = 0.265 + 0.031 * (progress * PI).sin();
-            let depth = 0.15 + 0.012 * (progress * PI).sin();
+            let profile = super::body::profile(index, height);
+            let width = profile.x + 0.004;
+            let depth = profile.y + 0.004;
             let horizontal = width * angle.sin();
-            positions.push([horizontal, height, depth * angle.cos()]);
+            let depth = depth * angle.cos();
+            let depth = depth + super::body::chest_offset(index, horizontal, height, depth);
+            positions.push([horizontal, height, depth]);
             let color = if index == 0 {
                 let motif = (horizontal * 115.0 + (height * 37.0).sin() * 2.8).sin()
                     * (height * 95.0 + (horizontal * 40.0).cos() * 2.0).cos();
@@ -433,12 +436,15 @@ pub fn garment(index: usize) -> Mesh {
 }
 
 pub fn collar(side: f32) -> Mesh {
-    let positions = vec![
+    let mut positions = vec![
         [side * 0.028, 0.635, 0.116],
         [side * 0.112, 0.600, 0.153],
         [side * 0.084, 0.510, 0.172],
         [side * 0.052, 0.551, 0.164],
     ];
+    for position in &mut positions {
+        position[2] = super::body::front(1, position[0], position[1]) + 0.010;
+    }
     let indices = if side > 0.0 {
         vec![0, 2, 1, 0, 3, 2]
     } else {
