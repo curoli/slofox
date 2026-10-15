@@ -16,6 +16,8 @@ OBS records the app window and the two audio channels.
   collared shirt with muted red/green accents for host 2.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.
+  Individual lip contours, separate tooth crowns and fine crown-hair strands
+  add detail without photo textures.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
@@ -24,6 +26,8 @@ OBS records the app window and the two audio channels.
   using a lightweight geometric constraint, without a physics engine.
 - A shared desk, studio lighting, microphones and three smoothly changing
   camera angles. Rendering starts at 1280 × 720 with a 30 fps target.
+  The rounded tabletop and inset apron are closed meshes, avoiding overlapping
+  coplanar cube/cylinder surfaces and flickering at the front seam.
 - A diagnostic overlay showing both audio levels and capture status, which can
   be hidden for recording. Rendering continues while the browser has focus.
 - A silent demo mode that does not access the microphone or browser audio.

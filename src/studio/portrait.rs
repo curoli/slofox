@@ -255,6 +255,58 @@ pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh 
     indexed_surface(positions, indices)
 }
 
+pub fn crown_strand(index: usize, side: f32, strand: usize) -> Mesh {
+    let portrait = Portrait::for_host(index);
+    let sweep = if index == 0 { 0.008 } else { 0.018 };
+    let segments = 24;
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut indices = Vec::new();
+    for step in 0..=segments {
+        let progress = step as f32 / segments as f32;
+        let horizontal = portrait.hair_part * (1.0 - progress) + side * 0.173 * progress;
+        let depth = 0.025 + strand as f32 * 0.021 + progress * 0.012;
+        for edge in [-1.0, 1.0] {
+            let horizontal = horizontal + edge * 0.0020;
+            let unit_z = depth / 0.207;
+            let mut unit_x = horizontal / 0.205;
+            let mut unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
+            for _ in 0..3 {
+                unit_x = (horizontal - portrait.hair_part * 0.12 * unit_y) / 0.205;
+                unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
+            }
+            let normal = Vec3::new(unit_x / 0.205, unit_y / 0.280, unit_z / 0.207).normalize();
+            let point = Vec3::new(horizontal, 0.264 + 0.280 * unit_y + sweep * unit_x, depth)
+                + normal * 0.0020;
+            positions.push(point.to_array());
+            normals.push(normal.to_array());
+        }
+        if step < segments {
+            let base = step as u32 * 2;
+            indices.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        let first = Vec3::from_array(positions[triangle[0] as usize]);
+        let second = Vec3::from_array(positions[triangle[1] as usize]);
+        let third = Vec3::from_array(positions[triangle[2] as usize]);
+        if (second - first)
+            .cross(third - first)
+            .dot(Vec3::from_array(normals[triangle[0] as usize]))
+            < 0.0
+        {
+            triangle.swap(1, 2);
+        }
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
 pub const TOOTH_TOP: f32 = 0.91 * (1.0 - 0.12 * 0.1175);
 
 pub fn teeth() -> Mesh {
@@ -302,6 +354,24 @@ pub fn teeth() -> Mesh {
         }
     }
     indexed_surface(positions, indices)
+}
+
+pub fn lip(index: usize, upper: bool) -> Mesh {
+    let mut mesh = smile(index);
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for position in positions {
+            let horizontal = position[0];
+            if upper {
+                position[1] += 0.24 * (-((horizontal.abs() - 0.25) / 0.18).powi(2)).exp();
+            } else {
+                position[1] -= 0.12 * (1.0 - horizontal.powi(2));
+            }
+        }
+    }
+    mesh.compute_area_weighted_normals();
+    mesh
 }
 
 pub fn garment(index: usize) -> Mesh {
@@ -645,6 +715,47 @@ mod tests {
                 let jaw = step as f32 / 99.0;
                 assert!((0.0..=1.0).contains(&tooth_visibility(index, jaw)));
                 assert!(tooth_visibility(index, jaw) >= tooth_visibility(index, 0.0));
+            }
+        }
+    }
+
+    #[test]
+    fn crown_strands_lips_and_teeth_are_finite_and_face_outward() {
+        let mut meshes = vec![teeth()];
+        for index in 0..2 {
+            meshes.extend([lip(index, true), lip(index, false)]);
+            for side in [-1.0, 1.0] {
+                for strand in 0..4 {
+                    meshes.push(crown_strand(index, side, strand));
+                }
+            }
+        }
+        for mesh in meshes {
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing positions")
+            };
+            let Some(VertexAttributeValues::Float32x3(normals)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("missing normals")
+            };
+            assert_eq!(positions.len(), normals.len());
+            assert!(
+                positions
+                    .iter()
+                    .flatten()
+                    .all(|value| value.is_finite() && value.abs() < 2.0)
+            );
+            assert!(normals.iter().flatten().all(|value| value.is_finite()));
+            let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+            assert!(indices.iter().all(|&index| index < positions.len()));
+            for &[first, second, third] in indices.as_chunks::<3>().0 {
+                let first_point = Vec3::from_array(positions[first]);
+                let cross = (Vec3::from_array(positions[second]) - first_point)
+                    .cross(Vec3::from_array(positions[third]) - first_point);
+                assert!(cross.dot(Vec3::from_array(normals[first])) >= -0.00000001);
             }
         }
     }

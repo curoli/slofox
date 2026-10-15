@@ -2,6 +2,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::{prelude::*, render::view::NoIndirectDrawing};
 
+mod desk;
 mod portrait;
 mod sculpt;
 
@@ -46,8 +47,7 @@ pub enum PartKind {
 #[derive(Component)]
 pub struct StudioCamera;
 
-const DESK_THICKNESS: f32 = 0.10;
-pub const DESK_SURFACE_Y: f32 = 1.17;
+pub const DESK_SURFACE_Y: f32 = desk::SURFACE_Y;
 const ARM_CLEARANCE: f32 = 0.005;
 
 #[derive(Component)]
@@ -421,7 +421,8 @@ fn host(
         );
     }
 
-    let smile = meshes.add(portrait::smile(index));
+    let upper_shape = meshes.add(portrait::lip(index, true));
+    let lower_shape = meshes.add(portrait::lip(index, false));
     let [mouth_rest, upper_rest, lip_rest, teeth_rest] = mouth_geometry(index);
     let mouth = object(
         commands,
@@ -431,9 +432,15 @@ fn host(
         mouth_rest,
     );
     animated(commands, mouth, index, PartKind::Mouth, mouth_rest);
-    let upper_lip = object(commands, Some(head), &smile, &palette.lips, upper_rest);
+    let upper_lip = object(
+        commands,
+        Some(head),
+        &upper_shape,
+        &palette.lips,
+        upper_rest,
+    );
     animated(commands, upper_lip, index, PartKind::UpperLip, upper_rest);
-    let lower_lip = object(commands, Some(head), &smile, &palette.lips, lip_rest);
+    let lower_lip = object(commands, Some(head), &lower_shape, &palette.lips, lip_rest);
     animated(commands, lower_lip, index, PartKind::LowerLip, lip_rest);
     let tooth_shape = meshes.add(portrait::teeth());
     let teeth = object(
@@ -466,6 +473,18 @@ fn host(
             &palette.streak,
             limb_transform(start, end, 0.0018),
         );
+    }
+    for side in [-1.0, 1.0] {
+        for strand in 0..4 {
+            let strand = meshes.add(portrait::crown_strand(index, side, strand));
+            object(
+                commands,
+                Some(head),
+                &strand,
+                &palette.streak,
+                Transform::default(),
+            );
+        }
     }
     let cap = meshes.add(portrait::hair_cap(index));
     object(
@@ -612,44 +631,16 @@ pub fn setup(
         );
     }
 
-    object(
-        &mut commands,
-        None,
-        &geometry.cube,
-        &wood,
-        Transform::from_xyz(0.0, DESK_SURFACE_Y - DESK_THICKNESS * 0.5, 0.65)
-            .with_scale(Vec3::new(2.7, DESK_THICKNESS, 1.0)),
-    );
-    object(
-        &mut commands,
-        None,
-        &geometry.cube,
-        &edge,
-        Transform::from_xyz(0.0, 0.83, 0.67).with_scale(Vec3::new(2.7, 0.50, 0.96)),
-    );
-    for side in [-1.0, 1.0] {
-        object(
-            &mut commands,
-            None,
-            &geometry.cylinder,
-            &wood,
-            Transform::from_xyz(side * 1.35, DESK_SURFACE_Y - DESK_THICKNESS * 0.5, 0.65)
-                .with_scale(Vec3::new(0.5, DESK_THICKNESS, 0.5)),
-        );
-        object(
-            &mut commands,
-            None,
-            &geometry.cylinder,
-            &edge,
-            Transform::from_xyz(side * 1.35, 0.83, 0.67).with_scale(Vec3::new(0.48, 0.50, 0.48)),
-        );
-    }
+    let tabletop = meshes.add(desk::tabletop());
+    let apron = meshes.add(desk::apron());
+    object(&mut commands, None, &tabletop, &wood, Transform::default());
+    object(&mut commands, None, &apron, &edge, Transform::default());
     object(
         &mut commands,
         None,
         &geometry.cube,
         &teal,
-        Transform::from_xyz(0.0, 0.85, 1.155).with_scale(Vec3::new(1.5, 0.016, 0.012)),
+        Transform::from_xyz(0.0, 0.85, 1.125).with_scale(Vec3::new(1.5, 0.016, 0.012)),
     );
 
     object(
