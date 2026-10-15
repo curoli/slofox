@@ -26,8 +26,9 @@ OBS records the app window and the two audio channels.
   the torso without opening gaps; the surface is generated only at startup.
   Slimmer elbow transitions avoid rounded joint knobs. Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
-  and top. The chest sits lower, with a shoulder-to-chest gap slightly greater
-  than its full height; the top covers approximately the lower half.
+  and top. The shoulder-to-chest gap equals the height of the rounded chest
+  contours (excluding the soft blending rim); the top covers approximately
+  the lower half.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.

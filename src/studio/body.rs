@@ -15,7 +15,11 @@ pub struct Surface {
     colors: Vec<[f32; 4]>,
 }
 
-pub const CHEST_CENTER_Y: f32 = 0.20;
+const SHOULDER_Y: f32 = 0.55;
+const SHOULDER_RADIUS: f32 = 0.073;
+const SHOULDER_TOP_Y: f32 = 0.6325;
+const CHEST_RADIUS_Y: f32 = 0.100;
+pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
 
 pub fn wrist(side: f32) -> Vec3 {
@@ -31,7 +35,7 @@ fn upper_arm(side: f32) -> Vec3 {
 }
 
 pub fn shoulder(side: f32) -> Vec3 {
-    Vec3::new(side * 0.29, 0.55, 0.0)
+    Vec3::new(side * 0.29, SHOULDER_Y, 0.0)
 }
 
 pub fn skin_color(index: usize) -> Color {
@@ -114,14 +118,14 @@ pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
 }
 
 pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
-    if index != 0 || depth <= 0.0 || (height - CHEST_CENTER_Y).abs() >= 0.100 * 1.35 {
+    if index != 0 || depth <= 0.0 || (height - CHEST_CENTER_Y).abs() >= CHEST_RADIUS_Y * 1.35 {
         return 0.0;
     }
     let profile = profile(index, height);
     let baseline = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
     let cap = |center: f32| {
-        let radial_squared =
-            ((horizontal - center) / 0.095).powi(2) + ((height - CHEST_CENTER_Y) / 0.100).powi(2);
+        let radial_squared = ((horizontal - center) / 0.095).powi(2)
+            + ((height - CHEST_CENTER_Y) / CHEST_RADIUS_Y).powi(2);
         let radius = radial_squared.sqrt();
         if radius >= 1.35 {
             return 0.0;
@@ -169,7 +173,7 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
     let elbow = elbow(side);
     let wrist = wrist(side);
     let upper_arm = smooth_union(
-        capsule(point, shoulder, upper, 0.073, 0.061),
+        capsule(point, shoulder, upper, SHOULDER_RADIUS, 0.061),
         capsule(point, upper, elbow, 0.061, 0.040),
         0.018,
     );
@@ -405,8 +409,8 @@ mod tests {
 
     #[test]
     fn chest_sits_below_shoulders_with_half_coverage() {
-        let chest_top = CHEST_CENTER_Y + 0.100 * 1.35;
-        let chest_bottom = CHEST_CENTER_Y - 0.100 * 1.35;
+        let chest_top = CHEST_CENTER_Y + CHEST_RADIUS_Y;
+        let chest_bottom = CHEST_CENTER_Y - CHEST_RADIUS_Y;
         let chest_height = chest_top - chest_bottom;
         let shoulder_top = surface(0)
             .positions
@@ -415,7 +419,10 @@ mod tests {
             .map(|point| point[1])
             .fold(f32::NEG_INFINITY, f32::max);
         let gap = shoulder_top - chest_top;
-        assert!(gap > chest_height && gap < chest_height * 1.15);
+        assert!(
+            (gap - chest_height).abs() < 0.001,
+            "gap {gap}, chest height {chest_height}"
+        );
         let garment = super::super::portrait::garment(0);
         let Some(VertexAttributeValues::Float32x3(positions)) =
             garment.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -503,7 +510,7 @@ mod tests {
             .max_by(|first, second| first.1.total_cmp(&second.1))
             .unwrap();
         assert!((0.110..0.135).contains(&peak_position));
-        assert!((0.215..0.225).contains(&peak_depth));
+        assert!((0.225..0.235).contains(&peak_depth));
         let peak_height = (-70..=70)
             .map(|step| CHEST_CENTER_Y + step as f32 / 1000.0)
             .max_by(|first, second| front(0, 0.125, *first).total_cmp(&front(0, 0.125, *second)))
