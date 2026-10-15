@@ -121,18 +121,13 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
     let shoulder = Vec3::new(-side * 0.025, 0.005, 0.0);
     let upper = Vec3::new(side * 0.12, -0.055, 0.075);
     let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
-    let forearm = Vec3::new(side * 0.15, -0.080, 0.29);
     let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
     let upper_arm = smooth_union(
         capsule(point, shoulder, upper, 0.073, 0.061),
         capsule(point, upper, elbow, 0.061, 0.047),
         0.018,
     );
-    let lower_arm = smooth_union(
-        capsule(point, elbow, forearm, 0.047, 0.048),
-        capsule(point, forearm, wrist, 0.048, 0.029),
-        0.016,
-    );
+    let lower_arm = capsule(point, elbow, wrist, 0.047, 0.029);
     smooth_union(upper_arm, lower_arm, 0.024)
 }
 
@@ -348,6 +343,46 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
+
+    #[test]
+    fn forearms_taper_from_the_single_elbow_to_the_wrist_without_an_extra_joint() {
+        for side in [-1.0, 1.0] {
+            let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
+            let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+            let direction = (wrist - elbow).normalize();
+            let tangent = direction.any_orthonormal_vector();
+            let bitangent = direction.cross(tangent);
+            let mut previous_radius = f32::INFINITY;
+            for step in 30..=90 {
+                let fraction = step as f32 / 100.0;
+                let center = shoulder(side) + elbow.lerp(wrist, fraction);
+                let expected_radius = 0.047 + fraction * (0.029 - 0.047);
+                let mut largest_radius = 0.0_f32;
+                for segment in 0..32 {
+                    let angle = segment as f32 / 32.0 * std::f32::consts::TAU;
+                    let radial = tangent * angle.cos() + bitangent * angle.sin();
+                    let mut inside = 0.0;
+                    let mut outside = 0.08;
+                    for _ in 0..20 {
+                        let radius = (inside + outside) * 0.5;
+                        if arm_distance(center + radial * radius, side) <= 0.0 {
+                            inside = radius;
+                        } else {
+                            outside = radius;
+                        }
+                    }
+                    let radius = (inside + outside) * 0.5;
+                    assert!(
+                        (radius - expected_radius).abs() < 0.00001,
+                        "side {side}, fraction {fraction}, angle {angle}: {radius} vs {expected_radius}"
+                    );
+                    largest_radius = largest_radius.max(radius);
+                }
+                assert!(largest_radius <= previous_radius);
+                previous_radius = largest_radius;
+            }
+        }
+    }
 
     #[test]
     fn neck_and_shoulder_profiles_taper_without_horizontal_steps() {
