@@ -31,6 +31,8 @@ OBS records the app window and the two audio channels.
   The rounded envelopes join the torso to the tapered upper arms, with a
   localized lower transition that preserves the higher armpits. Surface
   generation remains cached at startup, with no per-frame remeshing.
+  The neck root tapers without an added collar-like bulge, and the full torso
+  contour is retained below the armpits rather than pinched by the shoulder patch.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest

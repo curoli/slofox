@@ -58,8 +58,8 @@ pub fn profile(index: usize, height: f32) -> Vec2 {
         [0.48, 0.292, 0.153],
         [0.55, 0.305, 0.145],
         [0.59, 0.285, 0.134],
-        [0.64, 0.200, 0.108],
-        [0.70, 0.095, 0.078],
+        [0.64, 0.180, 0.095],
+        [0.70, 0.088, 0.076],
         [0.76, 0.074, 0.075],
         [0.83, 0.082, 0.078],
     ];
@@ -236,8 +236,13 @@ fn distance(index: usize, point: Vec3) -> f32 {
                 - (0.09 + radius_delta.dot(projected)),
         );
     }
-    let neck = -smooth_union(-torso_distance(index, point), 0.16 - point.x.abs(), 0.04);
-    let neck_blend = 0.03 + 0.04 * smoothstep((point.z.abs() - 0.04) / 0.06);
+    let neck_width = 0.32 - 0.16 * smoothstep((point.y - 0.50) / 0.09);
+    let neck = -smooth_union(
+        -torso_distance(index, point),
+        neck_width - point.x.abs(),
+        0.025,
+    );
+    let neck_blend = 0.035;
     let upper_body = smooth_union(convex, neck, neck_blend);
     original + amount * (upper_body - original)
 }
@@ -486,6 +491,52 @@ mod tests {
                 .fold(f32::NEG_INFINITY, f32::max);
             let coverage = (neckline - chest_bottom) / chest_height;
             assert!((0.45..0.60).contains(&coverage), "coverage: {coverage}");
+        }
+    }
+
+    #[test]
+    fn torso_keeps_its_full_contour_below_the_armpits() {
+        for index in 0..2 {
+            for step in 0..=80 {
+                let height = 0.36 + step as f32 * 0.002;
+                let profile = profile(index, height);
+                for segment in 0..64 {
+                    let angle = segment as f32 / 64.0 * std::f32::consts::TAU;
+                    let horizontal = profile.x * angle.cos();
+                    let depth = profile.y * angle.sin();
+                    let point = Vec3::new(
+                        horizontal,
+                        height,
+                        depth + chest_offset(index, horizontal, height, depth),
+                    );
+                    assert!(
+                        distance(index, point) < 0.00005,
+                        "pinched torso: host {index}, point {point:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn neck_root_does_not_swell_beyond_the_tapered_profile() {
+        for index in 0..2 {
+            for step in 0..=80 {
+                let height = 0.64 + step as f32 * 0.002;
+                let profile = profile(index, height);
+                for segment in 0..64 {
+                    let angle = segment as f32 / 64.0 * std::f32::consts::TAU;
+                    let point = Vec3::new(
+                        (profile.x + 0.002) * angle.cos(),
+                        height,
+                        (profile.y + 0.002) * angle.sin(),
+                    );
+                    assert!(
+                        distance(index, point) > 0.0,
+                        "swollen neck: host {index}, point {point:?}"
+                    );
+                }
+            }
         }
     }
 
