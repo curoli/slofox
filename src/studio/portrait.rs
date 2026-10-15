@@ -400,7 +400,9 @@ pub fn garment(index: usize) -> Mesh {
             let width = profile.x + 0.004;
             let depth = profile.y + 0.004;
             let horizontal = width * angle.sin();
-            positions.push([horizontal, height, depth * angle.cos()]);
+            let depth = depth * angle.cos();
+            let depth = depth + super::body::chest_offset(index, horizontal, height, depth);
+            positions.push([horizontal, height, depth]);
             let color = if index == 0 {
                 let motif = (horizontal * 115.0 + (height * 37.0).sin() * 2.8).sin()
                     * (height * 95.0 + (horizontal * 40.0).cos() * 2.0).cos();

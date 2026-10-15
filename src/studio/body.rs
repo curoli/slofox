@@ -94,13 +94,28 @@ fn profile_slope(sections: &[[f32; 3]], index: usize, component: usize) -> f32 {
 
 pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
     let profile = profile(index, height);
-    profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt()
+    let depth = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
+    depth + chest_offset(index, horizontal, height, depth)
+}
+
+pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
+    if index != 0 {
+        return 0.0;
+    }
+    let left = (-((horizontal + 0.11) / 0.075).powi(2)).exp();
+    let right = (-((horizontal - 0.11) / 0.075).powi(2)).exp();
+    let center = (-(horizontal / 0.045).powi(2)).exp();
+    let vertical = (-((height - 0.46) / 0.085).powi(2)).exp()
+        * smoothstep((height - 0.30) / 0.06)
+        * (1.0 - smoothstep((height - 0.55) / 0.09));
+    (0.040 * (left + right) - 0.006 * center) * vertical * smoothstep(depth / 0.06)
 }
 
 fn torso_distance(index: usize, point: Vec3) -> f32 {
     let profile = profile(index, point.y);
-    let radial = (Vec2::new(point.x / profile.x, point.z / profile.y).length() - 1.0)
-        * profile.min_element();
+    let depth = point.z - chest_offset(index, point.x, point.y, point.z);
+    let radial =
+        (Vec2::new(point.x / profile.x, depth / profile.y).length() - 1.0) * profile.min_element();
     radial.max(0.34 - point.y).max(point.y - 0.83)
 }
 
@@ -124,11 +139,11 @@ fn arm_distance(point: Vec3, side: f32) -> f32 {
     let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
     let upper_arm = smooth_union(
         capsule(point, shoulder, upper, 0.073, 0.061),
-        capsule(point, upper, elbow, 0.061, 0.047),
+        capsule(point, upper, elbow, 0.061, 0.040),
         0.018,
     );
-    let lower_arm = capsule(point, elbow, wrist, 0.047, 0.029);
-    smooth_union(upper_arm, lower_arm, 0.024)
+    let lower_arm = capsule(point, elbow, wrist, 0.040, 0.029);
+    smooth_union(upper_arm, lower_arm, 0.010)
 }
 
 fn distance(index: usize, point: Vec3) -> f32 {
@@ -345,6 +360,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn elbows_do_not_form_a_rounded_joint_bulge() {
+        for side in [-1.0, 1.0] {
+            let upper = Vec3::new(side * 0.12, -0.055, 0.075);
+            let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
+            let wrist = Vec3::new(-side * 0.01, -0.055, 0.46);
+            let normal = (upper - elbow).cross(wrist - elbow).normalize();
+            let center = shoulder(side) + elbow;
+            for direction in [-1.0, 1.0] {
+                assert!(arm_distance(center + normal * direction * 0.040, side) < 0.0);
+                assert!(arm_distance(center + normal * direction * 0.043, side) > 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn chest_has_two_subtle_front_contours_and_a_central_valley() {
+        for height in [0.43, 0.46, 0.49] {
+            let center = front(0, 0.0, height);
+            let left = front(0, -0.11, height);
+            let right = front(0, 0.11, height);
+            assert!((left - right).abs() < 0.000001);
+            assert!(left > center + 0.020);
+            assert!(left < 0.20);
+            assert!(torso_distance(0, Vec3::new(0.0, height, center)).abs() < 0.000001);
+            assert!(torso_distance(0, Vec3::new(0.11, height, right)).abs() < 0.000001);
+        }
+        for horizontal in [-0.2, -0.11, 0.0, 0.11, 0.2] {
+            assert_eq!(chest_offset(0, horizontal, 0.46, -0.15), 0.0);
+            assert_eq!(chest_offset(0, horizontal, 0.70, 0.15), 0.0);
+            assert_eq!(chest_offset(1, horizontal, 0.46, 0.15), 0.0);
+        }
+        let garment = super::super::portrait::garment(0);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            garment.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing garment positions")
+        };
+        for position in positions {
+            let point = Vec3::from_array(*position);
+            if point.y >= 0.35 && point.z > 0.0 {
+                assert!(
+                    torso_distance(0, point) > 0.0,
+                    "garment cuts into chest: {point:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn forearms_taper_from_the_single_elbow_to_the_wrist_without_an_extra_joint() {
         for side in [-1.0, 1.0] {
             let elbow = Vec3::new(side * 0.24, -0.095, 0.16);
@@ -356,7 +420,7 @@ mod tests {
             for step in 30..=90 {
                 let fraction = step as f32 / 100.0;
                 let center = shoulder(side) + elbow.lerp(wrist, fraction);
-                let expected_radius = 0.047 + fraction * (0.029 - 0.047);
+                let expected_radius = 0.040 + fraction * (0.029 - 0.040);
                 let mut largest_radius = 0.0_f32;
                 for segment in 0..32 {
                     let angle = segment as f32 / 32.0 * std::f32::consts::TAU;
