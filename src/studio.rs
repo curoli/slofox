@@ -8,6 +8,7 @@ use bevy::{
 };
 
 mod body;
+mod decor;
 mod desk;
 mod portrait;
 mod sculpt;
@@ -793,6 +794,8 @@ pub fn setup(
                 .with_scale(Vec3::new(0.039, 0.072, 0.039)),
         );
     }
+
+    decor::setup(&mut commands, &geometry, &mut materials);
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb_u8(186, 202, 223),
