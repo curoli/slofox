@@ -537,10 +537,24 @@ fn host(
         head,
         &palette.hair,
         Vec3::new(0.0, portrait.hair_back_center, -0.10),
-        Vec3::new(0.19, portrait.hair_back_half_height, 0.10),
+        Vec3::new(
+            if index == 0 { 0.21 } else { 0.19 },
+            portrait.hair_back_half_height,
+            if index == 0 { 0.13 } else { 0.10 },
+        ),
     );
+    if index == 0 {
+        let tail = meshes.add(portrait::ponytail());
+        object(
+            commands,
+            Some(head),
+            &tail,
+            &palette.hair,
+            Transform::default(),
+        );
+    }
     for side in [-1.0, 1.0] {
-        for lock in 0..5 {
+        for lock in 0..if index == 0 { 1 } else { 5 } {
             let hair = meshes.add(portrait::hair_lock(index, side, lock, false));
             object(
                 commands,
