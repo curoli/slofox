@@ -4,14 +4,16 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Birthday studio with titles and cozy set decoration](docs/studio-preview-2026-10-16-birthday.png)
+![Birthday studio with physical signs and cozy set decoration](docs/studio-preview-2026-10-16-wall-signs.png)
 
 ## Prototype
 
-- Birthday broadcast graphics stay readable during camera moves: "AI Talks with
+- Physical studio signs show "AI Talks with
   Jati & Oliver", "Sonderausgabe: Iris hat Geburtstag", a glowing red "On Air"
-  sign, an October 17 calendar card and a discreet "Powered by Slofox" credit.
-  These remain visible with `--clean` or when the diagnostics panel is hidden.
+  sign, an October 17 wall calendar and a discreet "Powered by Slofox" desk plaque.
+  The title, birthday subtitle and illuminated sign are mounted on the back wall,
+  not overlaid on the camera image. They follow perspective and occlusion naturally.
+  They are independent of the diagnostics panel and `--clean`.
   Two framed landscapes, a filled bookshelf and a floor plant decorate the 3D
   set; a book, handwritten-style notes and a pencil cup furnish the desk.
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
@@ -107,7 +109,12 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with birthday broadcast graphics](docs/portrait-preview-2026-10-16-birthday.png)
+![Portrait view with physical birthday signs](docs/portrait-preview-2026-10-16-wall-signs.png)
+
+To regenerate the bundled sign textures, run
+`python3 scripts/render-studio-signs.py` with Pillow installed. The default
+font is Debian's DejaVu Sans Bold; `--font /path/to/font.ttf` selects another font.
+Python and Pillow are not required to build or run the app.
 
 ## Build and demo
 

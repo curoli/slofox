@@ -43,134 +43,126 @@ fn group(commands: &mut Commands, name: &'static str, position: Vec3) -> Entity 
         .id()
 }
 
-fn label(commands: &mut Commands, parent: Entity, text: &str, size: f32, color: Color) {
-    commands.spawn((
-        Text::new(text),
-        TextFont::from_font_size(size),
-        TextColor(color),
-        TextLayout::justify(Justify::Center),
-        ChildOf(parent),
-    ));
+struct Sign {
+    name: &'static str,
+    label: String,
+    bytes: &'static [u8],
+    position: Vec3,
+    size: Vec2,
+    glowing: bool,
 }
 
-fn broadcast_graphics(commands: &mut Commands) {
-    let cream = Color::srgb_u8(255, 239, 211);
-    let title = commands
-        .spawn((
-            SetPiece,
-            Name::new("titles"),
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(18),
-                left: percent(15),
-                width: percent(70),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: px(5),
-                padding: UiRect::axes(px(12), px(10)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.035, 0.045, 0.055, 0.88)),
-        ))
-        .id();
-    label(commands, title, TITLE, 32.0, cream);
-    label(
-        commands,
-        title,
-        SUBTITLE,
-        19.0,
-        Color::srgb_u8(245, 188, 117),
-    );
+fn sign_image(bytes: &[u8]) -> Image {
+    Image::from_buffer(
+        bytes,
+        bevy::image::ImageType::Extension("png"),
+        bevy::image::CompressedImageFormats::NONE,
+        true,
+        bevy::image::ImageSampler::linear(),
+        bevy::asset::RenderAssetUsages::default(),
+    )
+    .expect("bundled studio sign must be a valid PNG")
+}
 
-    let on_air = commands
-        .spawn((
-            SetPiece,
-            Name::new("on-air"),
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(22),
-                top: px(25),
-                padding: UiRect::axes(px(12), px(8)),
-                border: UiRect::all(px(2)),
-                ..default()
+fn broadcast_graphics(
+    commands: &mut Commands,
+    geometry: &Geometry,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let backing = matte(materials, Color::srgb_u8(38, 34, 30));
+    let signs = [
+        Sign {
+            name: "titles",
+            label: format!("{TITLE}\n{SUBTITLE}"),
+            bytes: include_bytes!("../../assets/studio/title.png"),
+            position: Vec3::new(0.0, 2.90, -1.57),
+            size: Vec2::new(3.0, 0.515625),
+            glowing: false,
+        },
+        Sign {
+            name: "on-air",
+            label: "On Air".into(),
+            bytes: include_bytes!("../../assets/studio/on-air.png"),
+            position: Vec3::new(0.0, 2.50, -1.57),
+            size: Vec2::new(0.66, 0.22),
+            glowing: true,
+        },
+        Sign {
+            name: "calendar",
+            label: "OKTOBER\n17".into(),
+            bytes: include_bytes!("../../assets/studio/calendar.png"),
+            position: Vec3::new(-2.36, 2.22, -1.57),
+            size: Vec2::new(0.60, 0.825),
+            glowing: false,
+        },
+        Sign {
+            name: "credit",
+            label: "Powered by Slofox".into(),
+            bytes: include_bytes!("../../assets/studio/credit.png"),
+            position: Vec3::new(0.90, 0.72, 1.145),
+            size: Vec2::new(0.78, 0.121875),
+            glowing: false,
+        },
+    ];
+    for sign in signs {
+        let root = group(commands, sign.name, sign.position);
+        block(
+            commands,
+            geometry,
+            root,
+            &backing,
+            Vec3::ZERO,
+            Vec3::new(sign.size.x + 0.025, sign.size.y + 0.025, 0.05),
+        );
+        let texture = images.add(sign_image(sign.bytes));
+        let material = materials.add(StandardMaterial {
+            base_color: if sign.glowing {
+                Color::BLACK
+            } else {
+                Color::WHITE
             },
-            BorderColor::all(Color::srgb_u8(255, 45, 55)),
-            BackgroundColor(Color::srgb_u8(45, 8, 15)),
-            BoxShadow::new(
-                Color::srgba(1.0, 0.015, 0.025, 0.65),
-                px(0),
-                px(0),
-                px(3),
-                px(15),
-            ),
-        ))
-        .id();
-    label(
-        commands,
-        on_air,
-        "On Air",
-        24.0,
-        Color::srgb_u8(255, 66, 72),
-    );
-
-    let calendar = commands
-        .spawn((
-            SetPiece,
-            Name::new("calendar"),
-            Node {
-                position_type: PositionType::Absolute,
-                left: px(24),
-                top: px(130),
-                width: px(110),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                padding: UiRect::bottom(px(8)),
-                ..default()
+            base_color_texture: Some(texture.clone()),
+            emissive: if sign.glowing {
+                LinearRgba::rgb(8.0, 0.3, 0.3)
+            } else {
+                LinearRgba::BLACK
             },
-            BackgroundColor(cream),
-        ))
-        .id();
-    let calendar_header = commands
-        .spawn((
-            Node {
-                width: percent(100),
-                justify_content: JustifyContent::Center,
-                padding: UiRect::vertical(px(5)),
-                ..default()
-            },
-            BackgroundColor(Color::srgb_u8(160, 46, 49)),
-            ChildOf(calendar),
-        ))
-        .id();
-    label(commands, calendar_header, "OKTOBER", 17.0, cream);
-    label(commands, calendar, "17", 48.0, Color::srgb_u8(44, 41, 43));
-
-    let credit = commands
-        .spawn((
-            SetPiece,
-            Name::new("credit"),
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(22),
-                bottom: px(18),
-                padding: UiRect::axes(px(10), px(6)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.03, 0.04, 0.05, 0.82)),
-        ))
-        .id();
-    label(
-        commands,
-        credit,
-        "Powered by Slofox",
-        16.0,
-        Color::srgb_u8(204, 211, 205),
-    );
+            emissive_texture: sign.glowing.then_some(texture),
+            unlit: !sign.glowing,
+            perceptual_roughness: 0.8,
+            ..default()
+        });
+        let face = meshes.add(Rectangle::new(sign.size.x, sign.size.y));
+        let entity = object(
+            commands,
+            Some(root),
+            &face,
+            &material,
+            Transform::from_xyz(0.0, 0.0, 0.031),
+        );
+        commands.entity(entity).insert(Name::new(sign.label));
+        if sign.glowing {
+            commands.spawn((
+                PointLight {
+                    color: Color::srgb_u8(255, 28, 35),
+                    intensity: 35.0,
+                    range: 0.85,
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.12),
+                ChildOf(root),
+            ));
+        }
+    }
 }
 
 pub(super) fn setup(
     commands: &mut Commands,
     geometry: &Geometry,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
     materials: &mut Assets<StandardMaterial>,
 ) {
     let oak = matte(materials, Color::srgb_u8(130, 82, 49));
@@ -186,7 +178,7 @@ pub(super) fn setup(
     let colors = [&teal, &rust, &gold, &navy, &cream];
 
     for side in [-1.0, 1.0] {
-        let picture = group(commands, "picture", Vec3::new(side * 1.77, 2.65, -1.58));
+        let picture = group(commands, "picture", Vec3::new(side * 1.55, 2.24, -1.58));
         block(
             commands,
             geometry,
@@ -420,7 +412,7 @@ pub(super) fn setup(
             ),
         );
     }
-    broadcast_graphics(commands);
+    broadcast_graphics(commands, geometry, meshes, images, materials);
 }
 
 #[cfg(test)]
@@ -447,22 +439,21 @@ mod tests {
     fn birthday_studio_has_all_requested_labels_and_set_pieces() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
             .add_systems(Startup, super::super::setup);
         app.update();
         let world = app.world_mut();
         let labels: Vec<_> = world
-            .query::<&Text>()
+            .query_filtered::<&Name, With<Mesh3d>>()
             .iter(world)
-            .map(|text| text.0.clone())
+            .map(|name| name.as_str().to_owned())
             .collect();
         for expected in [
-            TITLE,
-            SUBTITLE,
+            &format!("{TITLE}\n{SUBTITLE}"),
             "On Air",
-            "OKTOBER",
-            "17",
+            "OKTOBER\n17",
             "Powered by Slofox",
         ] {
             assert!(
@@ -479,6 +470,85 @@ mod tests {
             assert!(pieces.contains(&expected));
         }
         assert_eq!(pieces.iter().filter(|name| **name == "picture").count(), 2);
+        assert_eq!(world.query::<&Node>().iter(world).count(), 0);
+        let faces: Vec<_> = world
+            .query::<(
+                &Name,
+                &Mesh3d,
+                &MeshMaterial3d<StandardMaterial>,
+                &ChildOf,
+                &Transform,
+            )>()
+            .iter(world)
+            .map(|(name, mesh, material, parent, transform)| {
+                (
+                    name.as_str().to_owned(),
+                    mesh.0.clone(),
+                    material.0.clone(),
+                    parent.parent(),
+                    *transform,
+                )
+            })
+            .collect();
+        assert_eq!(faces.len(), 4);
+        for (name, mesh, material, parent, transform) in faces {
+            assert!(world.get::<SetPiece>(parent).is_some());
+            let root = world.get::<Transform>(parent).unwrap();
+            if name.starts_with(TITLE) {
+                let mesh = world.resource::<Assets<Mesh>>().get(&mesh).unwrap();
+                let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing sign vertices")
+                };
+                for (portrait, camera) in [
+                    (false, Vec3::new(0.0, 2.32, 4.25)),
+                    (false, Vec3::new(-2.3, 2.25, 3.7)),
+                    (false, Vec3::new(2.3, 2.25, 3.7)),
+                    (true, Vec3::new(0.0, 2.13, 2.2)),
+                    (true, Vec3::new(-1.25, 2.13, 2.2)),
+                    (true, Vec3::new(1.25, 2.13, 2.2)),
+                ] {
+                    let target = Vec3::new(0.0, if portrait { 1.96 } else { 1.64 }, 0.0);
+                    let view = Transform::from_translation(camera)
+                        .looking_at(target, Vec3::Y)
+                        .to_matrix()
+                        .inverse();
+                    let projection = Mat4::perspective_rh(
+                        std::f32::consts::FRAC_PI_4,
+                        1280.0 / 720.0,
+                        0.1,
+                        1000.0,
+                    );
+                    let clip_from_sign =
+                        projection * view * root.to_matrix() * transform.to_matrix();
+                    for position in positions {
+                        let clip = clip_from_sign * Vec3::from_array(*position).extend(1.0);
+                        assert!(
+                            clip.w > 0.0 && clip.x.abs() < clip.w && clip.y.abs() < clip.w,
+                            "title clipped from {camera:?}: {clip:?}"
+                        );
+                    }
+                }
+            }
+            assert!((transform.translation.z - 0.031).abs() < 0.00001);
+            if name == "Powered by Slofox" {
+                assert!(root.translation.z > 1.12);
+                assert!((0.58..1.07).contains(&root.translation.y));
+            } else {
+                assert!((root.translation.z + 1.57).abs() < 0.00001);
+            }
+            let material = world
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap();
+            assert!(material.base_color_texture.is_some());
+            if name == "On Air" {
+                assert!(material.emissive_texture.is_some());
+                assert!(material.emissive.red > 1.0);
+            }
+        }
+        assert_eq!(world.resource::<Assets<Image>>().len(), 4);
         for transform in world.query::<&Transform>().iter(world) {
             assert!(transform.translation.is_finite());
             assert!(transform.scale.is_finite());

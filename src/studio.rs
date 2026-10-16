@@ -617,6 +617,7 @@ fn host(
 pub fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
 ) {
@@ -687,7 +688,7 @@ pub fn setup(
         None,
         &ring,
         &gold,
-        Transform::from_xyz(0.0, 2.2, -1.60).with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+        Transform::from_xyz(0.0, 1.94, -1.60).with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
     );
     for column in -3_i32..=3 {
         object(
@@ -695,7 +696,7 @@ pub fn setup(
             None,
             &geometry.cube,
             &teal,
-            Transform::from_xyz(column as f32 * 0.07, 2.2, -1.54).with_scale(Vec3::new(
+            Transform::from_xyz(column as f32 * 0.07, 1.94, -1.54).with_scale(Vec3::new(
                 0.027,
                 0.10 + (3 - column.abs()) as f32 * 0.06,
                 0.025,
@@ -795,7 +796,13 @@ pub fn setup(
         );
     }
 
-    decor::setup(&mut commands, &geometry, &mut materials);
+    decor::setup(
+        &mut commands,
+        &geometry,
+        &mut meshes,
+        &mut images,
+        &mut materials,
+    );
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb_u8(186, 202, 223),
@@ -832,6 +839,10 @@ pub fn setup(
     commands.spawn((
         StudioCamera,
         Camera3d::default(),
+        bevy::post_process::bloom::Bloom {
+            intensity: 0.08,
+            ..bevy::post_process::bloom::Bloom::NATURAL
+        },
         NoIndirectDrawing,
         Msaa::Sample4,
         Transform::from_xyz(0.0, 2.32, 4.25).looking_at(Vec3::new(0.0, 1.64, 0.0), Vec3::Y),
@@ -846,6 +857,7 @@ mod tests {
     fn lowered_heads_keep_their_neck_overlap_in_the_production_scene() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
             .add_systems(Startup, setup);
@@ -876,6 +888,7 @@ mod tests {
 
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
             .add_systems(Startup, setup);
