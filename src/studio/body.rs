@@ -295,19 +295,50 @@ fn surface_normal(index: usize, point: Vec3) -> Vec3 {
     .normalize()
 }
 
+pub fn shirt_color(point: Vec3) -> Color {
+    let patch = ((point.x * 9.0 + (point.y * 8.0).sin() * 0.35).floor() as i32
+        + (point.y * 8.0).floor() as i32 * 3)
+        .rem_euclid(5);
+    let palette = [
+        Color::srgb_u8(210, 183, 139),
+        Color::srgb_u8(31, 103, 100),
+        Color::srgb_u8(143, 53, 51),
+        Color::srgb_u8(187, 127, 45),
+        Color::srgb_u8(44, 63, 100),
+    ];
+    let ornament = (point.x * 145.0 + (point.y * 39.0).sin()).sin()
+        * (point.y * 140.0 + (point.x * 45.0).cos()).sin();
+    if ornament > 0.64 {
+        Color::srgb_u8(232, 207, 159)
+    } else if ornament < -0.68 {
+        Color::srgb_u8(58, 40, 35)
+    } else {
+        palette[patch as usize]
+    }
+}
+
+fn sleeve_coverage(point: Vec3) -> f32 {
+    let side = if point.x < 0.0 { -1.0 } else { 1.0 };
+    let start = shoulder(side) + arm_start(side);
+    let direction = elbow(side) - arm_start(side);
+    let progress = (point - start).dot(direction) / direction.length_squared();
+    1.0 - smoothstep((progress - 0.44) / 0.06)
+}
+
 fn color(index: usize, point: Vec3, weights: [f32; 4]) -> [f32; 4] {
     let mut color = skin_color(index).to_linear();
     if index == 1 {
-        let sleeve = smoothstep((weights[1] + weights[2] - 0.2) / 0.6)
-            * (1.0 - smoothstep((point.z - 0.14) / 0.06));
-        let motif = (point.x * 150.0).sin() * (point.y * 150.0).sin();
-        let cloth = if motif > 0.58 {
-            Color::srgb_u8(77, 47, 39)
-        } else {
-            Color::srgb_u8(194, 168, 133)
-        }
-        .to_linear();
-        color = color.mix(&cloth, sleeve);
+        let profile = profile(index, point.y);
+        let front = (point.x / profile.x)
+            .atan2(point.z / profile.y)
+            .cos()
+            .max(0.0);
+        let neckline =
+            0.61 - 0.09 * front.powi(12) + 0.025 * smoothstep((point.x.abs() - 0.12) / 0.10);
+        let torso_coverage = 1.0 - smoothstep((point.y - neckline) / 0.012);
+        let arm_weight = weights[1] + weights[2];
+        let coverage = torso_coverage * (1.0 - arm_weight) + sleeve_coverage(point) * arm_weight;
+        color = color.mix(&shirt_color(point).to_linear(), coverage);
     }
     [color.red, color.green, color.blue, 1.0]
 }
@@ -520,6 +551,47 @@ mod tests {
             let coverage = (neckline - chest_bottom) / chest_height;
             assert!((0.45..0.60).contains(&coverage), "coverage: {coverage}");
         }
+    }
+
+    #[test]
+    fn short_shirt_sleeves_leave_the_lower_upper_arm_and_forearm_bare() {
+        let skin = skin_color(1).to_linear();
+        let expected = [skin.red, skin.green, skin.blue, 1.0];
+        for side in [-1.0, 1.0] {
+            let start = shoulder(side) + arm_start(side);
+            let end = shoulder(side) + elbow(side);
+            let weights = if side < 0.0 {
+                [0.0, 1.0, 0.0, 0.0]
+            } else {
+                [0.0, 0.0, 1.0, 0.0]
+            };
+            for fraction in [0.0, 0.20, 0.40] {
+                let point = start.lerp(end, fraction);
+                assert_eq!(sleeve_coverage(point), 1.0);
+                assert_ne!(color(1, point, weights), expected);
+            }
+            for point in [start.lerp(end, 0.60), end, shoulder(side) + wrist(side)] {
+                assert_eq!(sleeve_coverage(point), 0.0);
+                assert_eq!(color(1, point, weights), expected);
+            }
+        }
+        let mut palette = BTreeSet::new();
+        for horizontal in -30..=30 {
+            for height in 10..=60 {
+                let color = shirt_color(Vec3::new(
+                    horizontal as f32 * 0.01,
+                    height as f32 * 0.01,
+                    0.1,
+                ))
+                .to_srgba();
+                palette.insert([
+                    (color.red * 255.0) as u8,
+                    (color.green * 255.0) as u8,
+                    (color.blue * 255.0) as u8,
+                ]);
+            }
+        }
+        assert!(palette.len() >= 7);
     }
 
     #[test]

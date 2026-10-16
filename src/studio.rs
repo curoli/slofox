@@ -120,6 +120,14 @@ impl ArmBounds {
     }
 }
 
+fn host_scale(index: usize) -> Vec3 {
+    if index == 1 {
+        Vec3::new(1.10, 1.055, 1.12)
+    } else {
+        Vec3::ONE
+    }
+}
+
 pub fn host_motion(elapsed: f32, index: usize, speech: f32) -> (Quat, f32) {
     let phase = elapsed + index as f32 * 2.1;
     (
@@ -129,7 +137,7 @@ pub fn host_motion(elapsed: f32, index: usize, speech: f32) -> (Quat, f32) {
             0.025 * (phase * 0.37).sin(),
             0.012 * (phase * 0.53).sin(),
         ),
-        DESK_SURFACE_Y - body::NAVEL_Y + 0.006 * (phase * 1.7).sin(),
+        DESK_SURFACE_Y - body::NAVEL_Y * host_scale(index).y + 0.006 * (phase * 1.7).sin(),
     )
 }
 
@@ -141,9 +149,10 @@ fn host_rest(index: usize) -> Transform {
     };
     Transform::from_xyz(
         if index == 0 { -0.76 } else { 0.76 },
-        DESK_SURFACE_Y - body::NAVEL_Y,
+        DESK_SURFACE_Y - body::NAVEL_Y * host_scale(index).y,
         depth,
     )
+    .with_scale(host_scale(index))
 }
 
 pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
@@ -302,7 +311,11 @@ fn host(
         commands,
         Some(root),
         &garment,
-        &palette.white,
+        if index == 1 {
+            &palette.body
+        } else {
+            &palette.white
+        },
         Transform::default(),
     );
     if index == 1 {
@@ -490,7 +503,7 @@ fn host(
     for segment in 0..8 {
         let start_polar = 0.12 + segment as f32 * 0.105;
         let end_polar = start_polar + 0.105;
-        let radial = (1.0 - (portrait.hair_part / 0.205).powi(2)).sqrt();
+        let radial = (1.0 - (portrait.hair_part / portrait.hair_width).powi(2)).sqrt();
         let start = Vec3::new(
             portrait.hair_part,
             0.264 + 0.282 * radial * start_polar.cos(),
@@ -729,7 +742,7 @@ pub fn setup(
                 body: body_material.clone(),
                 hair: matte(&mut materials, Color::srgb_u8(70, 53, 41)),
                 streak: matte(&mut materials, Color::srgb_u8(123, 106, 86)),
-                shirt: matte(&mut materials, Color::srgb_u8(166, 141, 111)),
+                shirt: matte(&mut materials, Color::srgb_u8(31, 85, 83)),
                 lips: matte(&mut materials, Color::srgb_u8(147, 94, 81)),
                 crease: matte(&mut materials, Color::srgb_u8(143, 106, 89)),
                 iris: matte(&mut materials, Color::srgb_u8(77, 66, 44)),
@@ -1280,7 +1293,9 @@ mod tests {
     fn raised_hosts_keep_the_desk_at_navel_height_and_arms_relaxed() {
         for index in 0..2 {
             let rest = host_rest(index);
-            assert!((rest.translation.y + body::NAVEL_Y - DESK_SURFACE_Y).abs() < 0.00001);
+            assert!(
+                (rest.transform_point(Vec3::Y * body::NAVEL_Y).y - DESK_SURFACE_Y).abs() < 0.00001
+            );
             for frame in 0..240 {
                 let (rotation, height) = host_motion(frame as f32 * 0.25, index, 1.0);
                 let host = Transform {
@@ -1306,6 +1321,22 @@ mod tests {
                 assert!((DESK_SURFACE_Y..DESK_SURFACE_Y + 0.12).contains(&wrist.y));
             }
         }
+    }
+
+    #[test]
+    fn male_host_is_taller_and_broader_without_moving_the_navel_above_the_desk() {
+        let female = host_rest(0);
+        let male = host_rest(1);
+        assert_eq!(female.scale, Vec3::ONE);
+        let crown = Vec3::new(0.0, 0.74 - body::NECK_LOWERING + 0.522, 0.0);
+        assert!(male.transform_point(crown).y > female.transform_point(crown).y + 0.05);
+        let shoulder_span = body::shoulder(1.0) - body::shoulder(-1.0);
+        assert!(
+            male.to_matrix().transform_vector3(shoulder_span).length()
+                > shoulder_span.length() * 1.09
+        );
+        assert!(male.scale.z > female.scale.z * 1.10);
+        assert!((male.transform_point(Vec3::Y * body::NAVEL_Y).y - DESK_SURFACE_Y).abs() < 0.00001);
     }
 
     #[test]

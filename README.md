@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio preview with updated upper-body geometry](docs/studio-preview-2026-10-15.png)
+![Studio preview with the revised microphone host](docs/studio-preview-2026-10-16.png)
 
 ## Prototype
 
@@ -12,8 +12,11 @@ OBS records the app window and the two audio channels.
   portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
   with blinking eyelids, individual brows and nose profiles, and smiles:
   long, parted black hair and a strapless orange/navy patterned top for host 1;
-  shoulder-length, wavy brown hair with lighter strands and a beige patterned
-  collared shirt with muted red/green accents for host 2.
+  swept-back, shoulder-length wavy brown hair with lighter strands, a broader
+  forehead and firmer jaw for host 2. He sits slightly taller with broader
+  shoulders and stronger arms, wearing a short-sleeved patchwork shirt in
+  teal, burgundy, ochre, navy and cream, with small printed ornaments.
+  Lower upper arms and forearms remain bare; both hosts keep the desk at navel height.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.
   The upper lips follow the opening's curved outline as the jaw moves, instead
@@ -93,7 +96,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait comparison view with updated upper-body geometry](docs/portrait-preview-2026-10-15.png)
+![Portrait comparison view with the revised microphone host](docs/portrait-preview-2026-10-16.png)
 
 ## Build and demo
 
