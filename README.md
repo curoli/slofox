@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio preview with updated upper-body geometry](docs/studio-preview-2026-10-15.png)
+![Studio preview with the revised microphone host](docs/studio-preview-2026-10-16.png)
 
 ## Prototype
 
@@ -12,8 +12,13 @@ OBS records the app window and the two audio channels.
   portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
   with blinking eyelids, individual brows and nose profiles, and smiles:
   long, parted black hair and a strapless orange/navy patterned top for host 1;
-  shoulder-length, wavy brown hair with lighter strands and a beige patterned
-  collared shirt with muted red/green accents for host 2.
+  swept-back, chin-length wavy brown hair with lighter strands but no drawn part, a broader
+  forehead and firmer jaw for host 2. He sits slightly taller with broader
+  shoulders and stronger arms, wearing a short-sleeved patchwork shirt in
+  teal, burgundy, ochre, navy and cream, with small printed ornaments.
+  The shirt has a clean open neckline without protruding collar pieces.
+  Side and rear hair locks taper into the scalp cap without flat, exposed root edges.
+  Lower upper arms and forearms remain bare; both hosts keep the desk at navel height.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.
   The upper lips follow the opening's curved outline as the jaw moves, instead
@@ -48,8 +53,9 @@ OBS records the app window and the two audio channels.
   Arms, hands and fingers stay above the desk surface during these movements
   using a lightweight geometric constraint over arm-surface vertices and hand
   bounds, without a physics engine.
-  Host 1 sits farther back so the chest and top stay behind the desk edge
-  during leaning and breathing, while both hands still reach the tabletop.
+  Both hosts sit far enough back for their scaled torso and clothing to stay
+  behind the desk edge during leaning and breathing, while their hands still
+  reach the tabletop.
   Both hosts sit higher, with the desk at navel height and their upper arms
   hanging down into a relaxed, bent-elbow posture.
 - A shared desk, studio lighting, microphones and three smoothly changing
@@ -93,7 +99,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait comparison view with updated upper-body geometry](docs/portrait-preview-2026-10-15.png)
+![Portrait comparison view with the revised microphone host](docs/portrait-preview-2026-10-16.png)
 
 ## Build and demo
 
