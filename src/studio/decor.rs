@@ -91,7 +91,7 @@ fn broadcast_graphics(
         },
         Sign {
             name: "calendar",
-            label: "OKTOBER\n17".into(),
+            label: "OKTOBER\n17\n2026".into(),
             bytes: include_bytes!("../../assets/studio/calendar.png"),
             position: Vec3::new(-2.36, 2.22, -1.57),
             size: Vec2::new(0.60, 0.825),
@@ -453,7 +453,7 @@ mod tests {
         for expected in [
             &format!("{TITLE}\n{SUBTITLE}"),
             "On Air",
-            "OKTOBER\n17",
+            "OKTOBER\n17\n2026",
             "Powered by Slofox",
         ] {
             assert!(

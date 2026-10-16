@@ -4,13 +4,13 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Birthday studio with physical signs and cozy set decoration](docs/studio-preview-2026-10-16-wall-signs.png)
+![Birthday studio with the October 17, 2026 wall calendar](docs/studio-preview-2026-10-16-calendar-year.png)
 
 ## Prototype
 
 - Physical studio signs show "AI Talks with
   Jati & Oliver", "Sonderausgabe: Iris hat Geburtstag", a glowing red "On Air"
-  sign, an October 17 wall calendar and a discreet "Powered by Slofox" desk plaque.
+  sign, an October 17, 2026 wall calendar and a discreet "Powered by Slofox" desk plaque.
   The title, birthday subtitle and illuminated sign are mounted on the back wall,
   not overlaid on the camera image. They follow perspective and occlusion naturally.
   They are independent of the diagnostics panel and `--clean`.
@@ -109,7 +109,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with physical birthday signs](docs/portrait-preview-2026-10-16-wall-signs.png)
+![Portrait view with the October 17, 2026 wall calendar](docs/portrait-preview-2026-10-16-calendar-year.png)
 
 To regenerate the bundled sign textures, run
 `python3 scripts/render-studio-signs.py` with Pillow installed. The default
