@@ -27,6 +27,7 @@ def render(font_path, output):
     draw = ImageDraw.Draw(calendar)
     draw.rectangle((0, 0, 511, 160), fill="#a02e31")
     centered(draw, "OKTOBER", (256, 105), font(64), cream)
+    centered(draw, "Samstag", (256, 220), font(60), "#a02e31")
     centered(draw, "17", (256, 422), font(318), "#2c292b")
     centered(draw, "2026", (256, 620), font(80), "#a02e31")
     for horizontal in (105, 407):
