@@ -333,7 +333,7 @@ fn face_framing_lock(side: f32, highlight: bool) -> Mesh {
                 + 0.013 * progress
                 + 0.031 * (progress * PI).sin()
                 + 0.013 * (progress * PI * 2.0).sin());
-        let height = 0.455 - progress * 0.57;
+        let height = 0.455 - progress * 0.38;
         let front = 0.090 + 0.025 * progress + 0.030 * (progress * PI).sin();
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
@@ -627,7 +627,11 @@ mod tests {
                 panic!("missing framing strand positions")
             };
             assert!(positions.iter().all(|point| side * point[0] > 0.15));
-            assert!(positions.iter().any(|point| point[1] < -0.11));
+            let bottom = positions
+                .iter()
+                .map(|point| point[1])
+                .fold(f32::INFINITY, f32::min);
+            assert!((bottom - 0.075).abs() < 0.00001);
         }
     }
 
