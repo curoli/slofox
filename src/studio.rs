@@ -200,7 +200,6 @@ struct Palette {
     body: Handle<StandardMaterial>,
     hair: Handle<StandardMaterial>,
     streak: Handle<StandardMaterial>,
-    shirt: Handle<StandardMaterial>,
     lips: Handle<StandardMaterial>,
     crease: Handle<StandardMaterial>,
     white: Handle<StandardMaterial>,
@@ -319,16 +318,6 @@ fn host(
         Transform::default(),
     );
     if index == 1 {
-        for side in [-1.0, 1.0] {
-            let collar = meshes.add(portrait::collar(side));
-            object(
-                commands,
-                Some(root),
-                &collar,
-                &palette.shirt,
-                Transform::default(),
-            );
-        }
         for button in 0..4 {
             let height = 0.15 + button as f32 * 0.1;
             ellipsoid(
@@ -500,7 +489,7 @@ fn host(
     );
     animated(commands, teeth, index, PartKind::Teeth, teeth_rest);
 
-    for segment in 0..8 {
+    for segment in 0..if portrait.draw_hair_part { 8 } else { 0 } {
         let start_polar = 0.12 + segment as f32 * 0.105;
         let end_polar = start_polar + 0.105;
         let radial = (1.0 - (portrait.hair_part / portrait.hair_width).powi(2)).sqrt();
@@ -547,8 +536,8 @@ fn host(
         geometry,
         head,
         &palette.hair,
-        Vec3::new(0.0, if index == 0 { 0.08 } else { 0.07 }, -0.10),
-        Vec3::new(0.19, if index == 0 { 0.34 } else { 0.30 }, 0.10),
+        Vec3::new(0.0, portrait.hair_back_center, -0.10),
+        Vec3::new(0.19, portrait.hair_back_half_height, 0.10),
     );
     for side in [-1.0, 1.0] {
         for lock in 0..5 {
@@ -729,7 +718,6 @@ pub fn setup(
                 body: body_material.clone(),
                 hair: matte(&mut materials, Color::srgb_u8(18, 22, 23)),
                 streak: matte(&mut materials, Color::srgb_u8(30, 31, 30)),
-                shirt: matte(&mut materials, Color::srgb_u8(41, 55, 63)),
                 lips: matte(&mut materials, Color::srgb_u8(143, 72, 59)),
                 crease: matte(&mut materials, Color::srgb_u8(113, 70, 48)),
                 iris: matte(&mut materials, Color::srgb_u8(50, 42, 25)),
@@ -742,7 +730,6 @@ pub fn setup(
                 body: body_material.clone(),
                 hair: matte(&mut materials, Color::srgb_u8(70, 53, 41)),
                 streak: matte(&mut materials, Color::srgb_u8(123, 106, 86)),
-                shirt: matte(&mut materials, Color::srgb_u8(31, 85, 83)),
                 lips: matte(&mut materials, Color::srgb_u8(147, 94, 81)),
                 crease: matte(&mut materials, Color::srgb_u8(143, 106, 89)),
                 iris: matte(&mut materials, Color::srgb_u8(77, 66, 44)),

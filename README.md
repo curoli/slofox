@@ -12,10 +12,11 @@ OBS records the app window and the two audio channels.
   portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
   with blinking eyelids, individual brows and nose profiles, and smiles:
   long, parted black hair and a strapless orange/navy patterned top for host 1;
-  swept-back, shoulder-length wavy brown hair with lighter strands, a broader
+  swept-back, chin-length wavy brown hair with lighter strands but no drawn part, a broader
   forehead and firmer jaw for host 2. He sits slightly taller with broader
   shoulders and stronger arms, wearing a short-sleeved patchwork shirt in
   teal, burgundy, ochre, navy and cream, with small printed ornaments.
+  The shirt has a clean open neckline without protruding collar pieces.
   Lower upper arms and forearms remain bare; both hosts keep the desk at navel height.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.

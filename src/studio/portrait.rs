@@ -18,6 +18,9 @@ pub struct Portrait {
     pub hair_length: f32,
     pub hair_part: f32,
     pub hair_width: f32,
+    pub draw_hair_part: bool,
+    pub hair_back_center: f32,
+    pub hair_back_half_height: f32,
 }
 
 impl Portrait {
@@ -34,6 +37,9 @@ impl Portrait {
                 hair_length: 0.83,
                 hair_part: 0.022,
                 hair_width: 0.205,
+                draw_hair_part: true,
+                hair_back_center: 0.08,
+                hair_back_half_height: 0.34,
             }
         } else {
             Self {
@@ -44,9 +50,12 @@ impl Portrait {
                 nose_width: 0.039,
                 mouth_width: 0.068,
                 mouth_y: 0.158,
-                hair_length: 0.60,
+                hair_length: 0.43,
                 hair_part: -0.052,
                 hair_width: 0.238,
+                draw_hair_part: false,
+                hair_back_center: 0.255,
+                hair_back_half_height: 0.230,
             }
         }
     }
@@ -442,40 +451,6 @@ pub fn garment(index: usize) -> Mesh {
     indexed_surface(positions, indices).with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
 }
 
-pub fn collar(side: f32) -> Mesh {
-    let corners = [
-        Vec2::new(side * 0.028, 0.635),
-        Vec2::new(side * 0.112, 0.600),
-        Vec2::new(side * 0.084, 0.510),
-        Vec2::new(side * 0.052, 0.551),
-    ];
-    let segments = 8;
-    let mut positions = Vec::new();
-    let mut indices = Vec::new();
-    for row in 0..=segments {
-        let progress = row as f32 / segments as f32;
-        let inner = corners[0].lerp(corners[3], progress);
-        let outer = corners[1].lerp(corners[2], progress);
-        for column in 0..=segments {
-            let point = inner.lerp(outer, column as f32 / segments as f32);
-            positions.push([
-                point.x,
-                point.y,
-                super::body::front(1, point.x, point.y) + 0.010,
-            ]);
-            if row < segments && column < segments {
-                connect_ring(&mut indices, row, column, segments);
-            }
-        }
-    }
-    if side > 0.0 {
-        for triangle in indices.as_chunks_mut::<3>().0 {
-            triangle.swap(1, 2);
-        }
-    }
-    indexed_surface(positions, indices)
-}
-
 pub fn smile(index: usize) -> Mesh {
     let mut mesh = Sphere::new(1.0).mesh().uv(32, 16);
     if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
@@ -504,24 +479,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shirt_collar_faces_follow_the_torso_without_skin_poking_through() {
+    fn microphone_hair_ends_near_the_chin_without_a_drawn_part() {
+        let male = Portrait::for_host(1);
+        assert!(!male.draw_hair_part);
+        assert!(Portrait::for_host(0).draw_hair_part);
+        assert!((male.hair_back_center - male.hair_back_half_height - 0.025).abs() < 0.00001);
         for side in [-1.0, 1.0] {
-            let mesh = collar(side);
-            let Some(VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                panic!("missing collar positions")
-            };
-            let Some(Indices::U32(indices)) = mesh.indices() else {
-                panic!("missing collar triangles")
-            };
-            for triangle in indices.as_chunks::<3>().0 {
-                let center = triangle
-                    .iter()
-                    .map(|&index| Vec3::from_array(positions[index as usize]))
-                    .sum::<Vec3>()
-                    / 3.0;
-                assert!(center.z > super::super::body::front(1, center.x, center.y) + 0.005);
+            for lock in 0..5 {
+                for highlight in [false, true] {
+                    let mesh = hair_lock(1, side, lock, highlight);
+                    let Some(VertexAttributeValues::Float32x3(positions)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("missing hair positions")
+                    };
+                    let bottom = positions
+                        .iter()
+                        .map(|point| point[1])
+                        .fold(f32::INFINITY, f32::min);
+                    assert!((bottom - 0.025).abs() < 0.00001);
+                }
             }
         }
     }
@@ -573,8 +550,6 @@ mod tests {
                 hair_lock(index, -1.0, 0, false),
                 hair_lock(index, 1.0, 4, true),
                 garment(index),
-                collar(-1.0),
-                collar(1.0),
             ];
             for mesh in meshes {
                 let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -633,15 +608,6 @@ mod tests {
                 }
                 assert!(checked > 5);
             }
-        }
-        for side in [-1.0, 1.0] {
-            let mesh = collar(side);
-            let Some(VertexAttributeValues::Float32x3(normals)) =
-                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-            else {
-                panic!("missing normals");
-            };
-            assert!(normals.iter().all(|normal| normal[2] > 0.0));
         }
     }
 
