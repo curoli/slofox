@@ -17,6 +17,7 @@ OBS records the app window and the two audio channels.
   shoulders and stronger arms, wearing a short-sleeved patchwork shirt in
   teal, burgundy, ochre, navy and cream, with small printed ornaments.
   The shirt has a clean open neckline without protruding collar pieces.
+  Side and rear hair locks taper into the scalp cap without flat, exposed root edges.
   Lower upper arms and forearms remain bare; both hosts keep the desk at navel height.
   Both hosts close their lips at rest. Speech independently controls mouth
   opening and lip shapes; teeth are hidden in pauses and kept subtle when speaking.

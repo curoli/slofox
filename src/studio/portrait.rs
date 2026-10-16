@@ -230,7 +230,7 @@ pub fn hair_cap(index: usize) -> Mesh {
 
 pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh {
     let portrait = Portrait::for_host(index);
-    let rings = 22;
+    let rings = if index == 1 { 32 } else { 22 };
     let segments = 12;
     let mut positions = Vec::new();
     let mut indices = Vec::new();
@@ -242,7 +242,31 @@ pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh 
         } else {
             0.016 * (progress * PI * 2.0 + lock as f32 * 0.7).sin()
         };
-        let horizontal = side * (0.157 + bend * 0.045 + lock as f32 * 0.011 + wave);
+        let mut horizontal = side * (0.157 + bend * 0.045 + lock as f32 * 0.011 + wave);
+        let mut root_taper = 1.0;
+        if index == 1 {
+            let root_depth = (0.013 - lock as f32 * 0.037) / 0.207;
+            let mut root_vertical: f32 = (0.455 - 0.264) / 0.280;
+            for _ in 0..4 {
+                let root_horizontal = side
+                    * (1.0_f32 - root_vertical.powi(2) - root_depth.powi(2))
+                        .max(0.001)
+                        .sqrt();
+                root_vertical = (0.455 - 0.264 - 0.018 * root_horizontal) / 0.280;
+            }
+            let root_horizontal = side
+                * (1.0_f32 - root_vertical.powi(2) - root_depth.powi(2))
+                    .max(0.001)
+                    .sqrt();
+            let root = (portrait.hair_width * root_horizontal
+                + portrait.hair_part * 0.12 * root_vertical)
+                * 0.98;
+            let blend = (progress / 0.35).clamp(0.0, 1.0);
+            let blend = blend * blend * (3.0 - 2.0 * blend);
+            horizontal = root * (1.0 - blend) + horizontal * blend;
+            let rounding = (progress / 0.14).clamp(0.0, 1.0);
+            root_taper = (rounding * rounding * (3.0 - 2.0 * rounding)).max(0.025);
+        }
         let vertical = 0.455 - progress * portrait.hair_length;
         let drape = if index == 0 && side < 0.0 {
             progress * 0.13
@@ -255,7 +279,7 @@ pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh 
             } else {
                 0.0
             };
-        let taper = (1.0 - progress).powf(0.30).max(0.06);
+        let taper = (1.0 - progress).powf(0.30).max(0.06) * root_taper;
         let width = if highlight {
             0.003
         } else if index == 1 {
@@ -477,6 +501,44 @@ mod tests {
     use bevy::mesh::VertexAttributeValues;
 
     use super::*;
+
+    #[test]
+    fn microphone_hair_roots_are_tapered_and_embedded_in_the_cap() {
+        let portrait = Portrait::for_host(1);
+        for side in [-1.0, 1.0] {
+            for lock in 0..5 {
+                for highlight in [false, true] {
+                    let mesh = hair_lock(1, side, lock, highlight);
+                    let Some(VertexAttributeValues::Float32x3(positions)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("missing hair positions")
+                    };
+                    for &[horizontal, height, depth] in &positions[..13] {
+                        let unit_horizontal = (horizontal
+                            - portrait.hair_part * 0.12 * (height - 0.264) / 0.280)
+                            / (portrait.hair_width - portrait.hair_part * 0.12 * 0.018 / 0.280);
+                        let unit_vertical = (height - 0.264 - 0.018 * unit_horizontal) / 0.280;
+                        let unit_depth = depth / 0.207;
+                        assert!(
+                            unit_horizontal.powi(2) + unit_vertical.powi(2) + unit_depth.powi(2)
+                                <= 1.002,
+                            "exposed hair root: side {side}, lock {lock}, point {horizontal}, {height}, {depth}"
+                        );
+                    }
+                    let root_width = positions[..13]
+                        .iter()
+                        .map(|point| point[0])
+                        .fold(f32::NEG_INFINITY, f32::max)
+                        - positions[..13]
+                            .iter()
+                            .map(|point| point[0])
+                            .fold(f32::INFINITY, f32::min);
+                    assert!(root_width < 0.003);
+                }
+            }
+        }
+    }
 
     #[test]
     fn microphone_hair_ends_near_the_chin_without_a_drawn_part() {
