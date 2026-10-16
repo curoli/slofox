@@ -4,14 +4,15 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio preview with the revised microphone host](docs/studio-preview-2026-10-16.png)
+![Studio preview with the loose ponytail](docs/studio-preview-2026-10-16-ponytail.png)
 
 ## Prototype
 
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
   portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
   with blinking eyelids, individual brows and nose profiles, and smiles:
-  long, parted black hair and a strapless orange/navy patterned top for host 1;
+  voluminous black hair loosely gathered into a ponytail, a higher hairline,
+  two soft face-framing strands and a strapless orange/navy patterned top for host 1;
   swept-back, chin-length wavy brown hair with lighter strands but no drawn part, a broader
   forehead and firmer jaw for host 2. He sits slightly taller with broader
   shoulders and stronger arms, wearing a short-sleeved patchwork shirt in
@@ -99,7 +100,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait comparison view with the revised microphone host](docs/portrait-preview-2026-10-16.png)
+![Portrait comparison view with the loose ponytail](docs/portrait-preview-2026-10-16-ponytail.png)
 
 ## Build and demo
 
