@@ -52,8 +52,9 @@ OBS records the app window and the two audio channels.
   Arms, hands and fingers stay above the desk surface during these movements
   using a lightweight geometric constraint over arm-surface vertices and hand
   bounds, without a physics engine.
-  Host 1 sits farther back so the chest and top stay behind the desk edge
-  during leaning and breathing, while both hands still reach the tabletop.
+  Both hosts sit far enough back for their scaled torso and clothing to stay
+  behind the desk edge during leaning and breathing, while their hands still
+  reach the tabletop.
   Both hosts sit higher, with the desk at navel height and their upper arms
   hanging down into a relaxed, bent-elbow posture.
 - A shared desk, studio lighting, microphones and three smoothly changing

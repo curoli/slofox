@@ -145,7 +145,7 @@ fn host_rest(index: usize) -> Transform {
     let depth = if index == 0 {
         desk::BACK_EDGE_Z - 0.30
     } else {
-        0.0
+        desk::BACK_EDGE_Z - 0.25
     };
     Transform::from_xyz(
         if index == 0 { -0.76 } else { 0.76 },
@@ -996,63 +996,68 @@ mod tests {
     }
 
     #[test]
-    fn chest_and_top_stay_behind_the_desk_while_hands_still_reach_it() {
+    fn both_scaled_hosts_keep_their_torso_and_shirt_behind_the_desk_while_hands_reach_it() {
         use bevy::mesh::VertexAttributeValues;
 
-        let surface = body::surface(0);
-        let garment = portrait::garment(0);
-        let Some(VertexAttributeValues::Float32x3(garment_positions)) =
-            garment.attribute(Mesh::ATTRIBUTE_POSITION)
-        else {
-            panic!("missing garment positions")
-        };
-        let torso_positions = surface
-            .positions
-            .iter()
-            .zip(&surface.weights)
-            .filter(|(_, weights)| weights[0] >= 0.99)
-            .map(|(point, _)| point)
-            .chain(garment_positions);
-        let (minimum, maximum) = torso_positions.fold(
-            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
-            |(minimum, maximum), point| {
-                let point = Vec3::from_array(*point);
-                (minimum.min(point), maximum.max(point))
-            },
-        );
-        let bounds = [arm_bounds(0, -1.0), arm_bounds(0, 1.0)];
-        for frame in 0..960 {
-            let elapsed = frame as f32 * 0.125;
-            for speech_step in 0..=10 {
-                let speech = speech_step as f32 / 10.0;
-                let (rotation, height) = host_motion(elapsed, 0, speech);
-                let mut host = host_rest(0).with_rotation(rotation);
-                host.translation.y = height;
-                for corner in 0..8 {
-                    let point = Vec3::from_array(std::array::from_fn(|axis| {
-                        if corner & (1 << axis) == 0 {
-                            minimum[axis]
-                        } else {
-                            maximum[axis]
-                        }
-                    }));
-                    assert!(
-                        host.transform_point(point).z <= desk::BACK_EDGE_Z - 0.02,
-                        "torso intersects desk: time {elapsed}, speech {speech}, corner {point:?}"
-                    );
-                }
-                for (joint, side) in [(0, -1.0), (1, 1.0)] {
-                    let mut arm = Transform::from_translation(body::shoulder(side))
-                        .with_rotation(arm_rotation(elapsed, side, speech));
-                    bounds[joint].keep_above_desk(&host, &mut arm);
-                    for hand in hand_parts(side) {
-                        let matrix = host.to_matrix() * arm.to_matrix() * hand.to_matrix();
-                        let depth_extent =
-                            Vec3::new(matrix.x_axis.z, matrix.y_axis.z, matrix.z_axis.z).length();
+        for index in 0..2 {
+            let surface = body::surface(index);
+            let garment = portrait::garment(index);
+            let Some(VertexAttributeValues::Float32x3(garment_positions)) =
+                garment.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing garment positions")
+            };
+            let torso_positions = surface
+                .positions
+                .iter()
+                .zip(&surface.weights)
+                .filter(|(_, weights)| weights[0] >= 0.99)
+                .map(|(point, _)| point)
+                .chain(garment_positions);
+            let (minimum, maximum) = torso_positions.fold(
+                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                |(minimum, maximum), point| {
+                    let point = Vec3::from_array(*point);
+                    (minimum.min(point), maximum.max(point))
+                },
+            );
+            let bounds = [arm_bounds(index, -1.0), arm_bounds(index, 1.0)];
+            for frame in 0..960 {
+                let elapsed = frame as f32 * 0.125;
+                for speech_step in 0..=10 {
+                    let speech = speech_step as f32 / 10.0;
+                    let (rotation, height) = host_motion(elapsed, index, speech);
+                    let mut host = host_rest(index).with_rotation(rotation);
+                    host.translation.y = height;
+                    for corner in 0..8 {
+                        let point = Vec3::from_array(std::array::from_fn(|axis| {
+                            if corner & (1 << axis) == 0 {
+                                minimum[axis]
+                            } else {
+                                maximum[axis]
+                            }
+                        }));
                         assert!(
-                            matrix.w_axis.z - depth_extent >= desk::BACK_EDGE_Z + ARM_CLEARANCE,
-                            "hand no longer reaches desk: time {elapsed}, speech {speech}, side {side}"
+                            host.transform_point(point).z <= desk::BACK_EDGE_Z - 0.02,
+                            "host {index}: torso intersects desk: time {elapsed}, speech {speech}, corner {point:?}"
                         );
+                    }
+                    for (joint, side) in [(0, -1.0), (1, 1.0)] {
+                        let mut arm =
+                            Transform::from_translation(body::shoulder(side)).with_rotation(
+                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                            );
+                        bounds[joint].keep_above_desk(&host, &mut arm);
+                        for hand in hand_parts(side) {
+                            let matrix = host.to_matrix() * arm.to_matrix() * hand.to_matrix();
+                            let depth_extent =
+                                Vec3::new(matrix.x_axis.z, matrix.y_axis.z, matrix.z_axis.z)
+                                    .length();
+                            assert!(
+                                matrix.w_axis.z - depth_extent >= desk::BACK_EDGE_Z + ARM_CLEARANCE,
+                                "host {index}: hand no longer reaches desk: time {elapsed}, speech {speech}, side {side}"
+                            );
+                        }
                     }
                 }
             }
