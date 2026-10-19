@@ -4,12 +4,12 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with configurable subtitle and current-date calendar](docs/studio-preview-2026-10-19-configurable-signs.png)
+![Studio with corrected AI subtitle and current-date calendar](docs/studio-preview-2026-10-19-ai-subtitle.png)
 
 ## Prototype
 
 - Physical studio signs show "AI Talks with Jati & Oli", the configurable subtitle
-  "An A and a human talk about AI and humans", a glowing red "On Air" sign,
+  "An AI and a human talk about AI and humans", a glowing red "On Air" sign,
   a wall calendar and a discreet "Powered by Slofox" desk plaque.
   The calendar defaults to the local date at startup; its German month, weekday,
   day and year are derived from that date automatically.
@@ -111,7 +111,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with configurable subtitle and current-date calendar](docs/portrait-preview-2026-10-19-configurable-signs.png)
+![Portrait view with corrected AI subtitle and current-date calendar](docs/portrait-preview-2026-10-19-ai-subtitle.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 

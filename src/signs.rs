@@ -7,7 +7,7 @@ use bevy::{
 use chrono::{Datelike, Local, NaiveDate};
 
 pub const TITLE: &str = "AI Talks with Jati & Oli";
-pub const DEFAULT_SUBTITLE: &str = "An A and a human talk about AI and humans";
+pub const DEFAULT_SUBTITLE: &str = "An AI and a human talk about AI and humans";
 const FONT_DATA: &[u8] = include_bytes!("../assets/studio/DejaVuSans-Bold.ttf");
 
 #[derive(Resource, Clone, Debug)]
@@ -228,7 +228,7 @@ mod tests {
         assert!(signs.date == before || signs.date == after);
         assert_eq!(
             signs.title_label(),
-            "AI Talks with Jati & Oli\nAn A and a human talk about AI and humans"
+            "AI Talks with Jati & Oli\nAn AI and a human talk about AI and humans"
         );
     }
 
