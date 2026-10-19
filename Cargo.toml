@@ -8,6 +8,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/curoli/slofox"
 
 [dependencies]
+ab_glyph = "0.2.32"
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 bevy = { version = "0.19.0", default-features = false, features = [
     "std", "default_app", "3d_bevy_render", "ui_bevy_render", "bevy_winit",
     "default_font", "multi_threaded", "keyboard", "mouse", "wayland", "x11", "png",

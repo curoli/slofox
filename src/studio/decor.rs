@@ -1,9 +1,7 @@
 use bevy::prelude::*;
+use slofox::signs::StudioSigns;
 
 use super::{DESK_SURFACE_Y, Geometry, matte, object};
-
-const TITLE: &str = "AI Talks with Jati & Oliver";
-const SUBTITLE: &str = "Sonderausgabe: Iris hat Geburtstag";
 
 #[derive(Component)]
 struct SetPiece;
@@ -46,7 +44,7 @@ fn group(commands: &mut Commands, name: &'static str, position: Vec3) -> Entity 
 struct Sign {
     name: &'static str,
     label: String,
-    bytes: &'static [u8],
+    image: Image,
     position: Vec3,
     size: Vec2,
     glowing: bool,
@@ -70,13 +68,14 @@ fn broadcast_graphics(
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     materials: &mut Assets<StandardMaterial>,
+    settings: &StudioSigns,
 ) {
     let backing = matte(materials, Color::srgb_u8(38, 34, 30));
     let signs = [
         Sign {
             name: "titles",
-            label: format!("{TITLE}\n{SUBTITLE}"),
-            bytes: include_bytes!("../../assets/studio/title.png"),
+            label: settings.title_label(),
+            image: settings.title_image(),
             position: Vec3::new(0.0, 2.90, -1.57),
             size: Vec2::new(3.0, 0.515625),
             glowing: false,
@@ -84,15 +83,15 @@ fn broadcast_graphics(
         Sign {
             name: "on-air",
             label: "On Air".into(),
-            bytes: include_bytes!("../../assets/studio/on-air.png"),
+            image: sign_image(include_bytes!("../../assets/studio/on-air.png")),
             position: Vec3::new(0.0, 2.50, -1.57),
             size: Vec2::new(0.66, 0.22),
             glowing: true,
         },
         Sign {
             name: "calendar",
-            label: "OKTOBER\nSamstag\n17\n2026".into(),
-            bytes: include_bytes!("../../assets/studio/calendar.png"),
+            label: settings.calendar_lines().join("\n"),
+            image: settings.calendar_image(),
             position: Vec3::new(-2.36, 2.22, -1.57),
             size: Vec2::new(0.60, 0.825),
             glowing: false,
@@ -100,7 +99,7 @@ fn broadcast_graphics(
         Sign {
             name: "credit",
             label: "Powered by Slofox".into(),
-            bytes: include_bytes!("../../assets/studio/credit.png"),
+            image: sign_image(include_bytes!("../../assets/studio/credit.png")),
             position: Vec3::new(0.90, 0.72, 1.145),
             size: Vec2::new(0.78, 0.121875),
             glowing: false,
@@ -116,7 +115,7 @@ fn broadcast_graphics(
             Vec3::ZERO,
             Vec3::new(sign.size.x + 0.025, sign.size.y + 0.025, 0.05),
         );
-        let texture = images.add(sign_image(sign.bytes));
+        let texture = images.add(sign.image);
         let material = materials.add(StandardMaterial {
             base_color: if sign.glowing {
                 Color::BLACK
@@ -164,6 +163,7 @@ pub(super) fn setup(
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     materials: &mut Assets<StandardMaterial>,
+    settings: &StudioSigns,
 ) {
     let oak = matte(materials, Color::srgb_u8(130, 82, 49));
     let cream = matte(materials, Color::srgb_u8(245, 228, 193));
@@ -412,7 +412,7 @@ pub(super) fn setup(
             ),
         );
     }
-    broadcast_graphics(commands, geometry, meshes, images, materials);
+    broadcast_graphics(commands, geometry, meshes, images, materials, settings);
 }
 
 #[cfg(test)]
@@ -438,6 +438,11 @@ mod tests {
     #[test]
     fn birthday_studio_has_all_requested_labels_and_set_pieces() {
         let mut app = App::new();
+        let settings = StudioSigns {
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap(),
+            ..default()
+        };
+        app.insert_resource(settings.clone());
         app.init_resource::<Assets<Mesh>>()
             .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
@@ -451,7 +456,7 @@ mod tests {
             .map(|name| name.as_str().to_owned())
             .collect();
         for expected in [
-            &format!("{TITLE}\n{SUBTITLE}"),
+            &settings.title_label(),
             "On Air",
             "OKTOBER\nSamstag\n17\n2026",
             "Powered by Slofox",
@@ -494,7 +499,7 @@ mod tests {
         for (name, mesh, material, parent, transform) in faces {
             assert!(world.get::<SetPiece>(parent).is_some());
             let root = world.get::<Transform>(parent).unwrap();
-            if name.starts_with(TITLE) {
+            if name.starts_with(slofox::signs::TITLE) {
                 let mesh = world.resource::<Assets<Mesh>>().get(&mesh).unwrap();
                 let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
                     mesh.attribute(Mesh::ATTRIBUTE_POSITION)

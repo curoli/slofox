@@ -9,6 +9,10 @@ pub enum MouthMode {
 #[derive(Parser, Debug, Clone)]
 #[command(version, about = "Two audio-driven 3D talk show hosts for OBS")]
 pub struct Options {
+    #[arg(long, default_value = crate::signs::DEFAULT_SUBTITLE, help = "Subtitle on the studio wall sign")]
+    pub subtitle: String,
+    #[arg(long, value_parser = calendar_date, help = "Calendar date as YYYY-MM-DD (default: local date at startup)")]
+    pub calendar_date: Option<chrono::NaiveDate>,
     #[arg(long, help = "Animate synthetic conversation without recording audio")]
     pub demo: bool,
     #[arg(
@@ -82,6 +86,15 @@ pub struct Options {
     pub screenshot: Option<String>,
 }
 
+fn calendar_date(value: &str) -> Result<chrono::NaiveDate, String> {
+    let date = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| "expected a valid date as YYYY-MM-DD")?;
+    if date.format("%Y-%m-%d").to_string() != value {
+        return Err("expected a valid date as YYYY-MM-DD".into());
+    }
+    Ok(date)
+}
+
 fn positive_float(value: &str) -> Result<f32, String> {
     let number: f32 = value.parse().map_err(|_| "expected a number")?;
     if number.is_finite() && number > 0.0 {
@@ -112,6 +125,33 @@ fn formant_scale(value: &str) -> Result<f32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn studio_subtitle_and_calendar_date_have_defaults_and_overrides() {
+        let defaults = Options::try_parse_from(["slofox"]).unwrap();
+        assert_eq!(defaults.subtitle, crate::signs::DEFAULT_SUBTITLE);
+        assert_eq!(defaults.calendar_date, None);
+        let custom = Options::try_parse_from([
+            "slofox",
+            "--subtitle",
+            "Sonderausgabe: Iris hat Geburtstag",
+            "--calendar-date",
+            "2026-10-17",
+        ])
+        .unwrap();
+        assert_eq!(custom.subtitle, "Sonderausgabe: Iris hat Geburtstag");
+        assert_eq!(custom.calendar_date.unwrap().to_string(), "2026-10-17");
+        assert!(Options::try_parse_from(["slofox", "--calendar-date", "2028-02-29"]).is_ok());
+        for invalid in [
+            "2026-02-29",
+            "2026-13-01",
+            "2026-10-32",
+            "2026-1-2",
+            "17.10.2026",
+        ] {
+            assert!(Options::try_parse_from(["slofox", "--calendar-date", invalid]).is_err());
+        }
+    }
 
     #[test]
     fn rejects_invalid_audio_and_timing_options() {

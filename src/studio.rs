@@ -621,6 +621,7 @@ fn host(
 
 pub fn setup(
     mut commands: Commands,
+    signs: Res<slofox::signs::StudioSigns>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -807,6 +808,7 @@ pub fn setup(
         &mut meshes,
         &mut images,
         &mut materials,
+        &signs,
     );
 
     commands.insert_resource(GlobalAmbientLight {
@@ -897,6 +899,7 @@ mod tests {
     fn lowered_heads_keep_their_neck_overlap_in_the_production_scene() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
+            .init_resource::<slofox::signs::StudioSigns>()
             .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
@@ -928,6 +931,7 @@ mod tests {
 
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
+            .init_resource::<slofox::signs::StudioSigns>()
             .init_resource::<Assets<Image>>()
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<Assets<SkinnedMeshInverseBindposes>>()

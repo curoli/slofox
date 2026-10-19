@@ -124,6 +124,12 @@ fn main() -> ExitCode {
             };
         }
     }
+    let signs = slofox::signs::StudioSigns {
+        subtitle: options.subtitle.clone(),
+        date: options
+            .calendar_date
+            .unwrap_or_else(|| chrono::Local::now().date_naive()),
+    };
     let session = Session {
         overlay: !options.clean,
         auto_camera: options.auto_camera,
@@ -140,6 +146,7 @@ fn main() -> ExitCode {
     let exit = App::new()
         .insert_resource(ClearColor(Color::srgb_u8(21, 31, 49)))
         .insert_resource(session)
+        .insert_resource(signs)
         .insert_resource(WinitSettings::continuous())
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
