@@ -4,14 +4,16 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Birthday studio with a smooth shoulder outline from neck to upper arms](docs/studio-preview-2026-10-19-smooth-shoulder-outline-v6.png)
+![Studio with configurable subtitle and current-date calendar](docs/studio-preview-2026-10-19-configurable-signs.png)
 
 ## Prototype
 
-- Physical studio signs show "AI Talks with
-  Jati & Oliver", "Sonderausgabe: Iris hat Geburtstag", a glowing red "On Air"
-  sign, a Saturday, October 17, 2026 wall calendar and a discreet "Powered by Slofox" desk plaque.
-  The title, birthday subtitle and illuminated sign are mounted on the back wall,
+- Physical studio signs show "AI Talks with Jati & Oli", the configurable subtitle
+  "An A and a human talk about AI and humans", a glowing red "On Air" sign,
+  a wall calendar and a discreet "Powered by Slofox" desk plaque.
+  The calendar defaults to the local date at startup; its German month, weekday,
+  day and year are derived from that date automatically.
+  The title, subtitle and illuminated sign are mounted on the back wall,
   not overlaid on the camera image. They follow perspective and occlusion naturally.
   They are independent of the diagnostics panel and `--clean`.
   Two framed landscapes, a filled bookshelf and a floor plant decorate the 3D
@@ -109,11 +111,25 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with a smooth shoulder outline from neck to upper arms](docs/portrait-preview-2026-10-19-smooth-shoulder-outline-v6.png)
+![Portrait view with configurable subtitle and current-date calendar](docs/portrait-preview-2026-10-19-configurable-signs.png)
 
-To regenerate the bundled sign textures, run
+Set the wall subtitle and calendar date with startup options, for example:
+
+```sh
+cargo run --locked -- --demo --subtitle "Sonderausgabe: Iris hat Geburtstag" --calendar-date 2026-10-17
+```
+
+Omit `--calendar-date` to use today's local date, including when recording live
+audio. Dates must be valid `YYYY-MM-DD` values. Use `--subtitle ""` for no subtitle.
+The date is selected once at startup, not changed during a recording. Long
+subtitles are automatically scaled to fit the physical sign.
+
+Title and calendar textures are generated directly in Rust at startup using
+the bundled DejaVu Sans Bold font (see `assets/studio/FONT-LICENSE.txt`);
+no external fonts or scripts are needed. To regenerate
+only the static On Air and credit textures, run
 `python3 scripts/render-studio-signs.py` with Pillow installed. The default
-font is Debian's DejaVu Sans Bold; `--font /path/to/font.ttf` selects another font.
+font is the bundled DejaVu Sans Bold; `--font /path/to/font.ttf` selects another font.
 Python and Pillow are not required to build or run the app.
 
 ## Build and demo
