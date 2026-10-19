@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Birthday studio with the Saturday, October 17, 2026 wall calendar](docs/studio-preview-2026-10-16-calendar-saturday.png)
+![Birthday studio with a smooth shoulder outline from neck to upper arms](docs/studio-preview-2026-10-19-smooth-shoulder-outline-v6.png)
 
 ## Prototype
 
@@ -19,8 +19,8 @@ OBS records the app window and the two audio channels.
 - Two lightweight, procedural 3D upper-body avatars inspired by the supplied
   portraits, with smoothly sculpted cheeks/jaws, recessed almond-shaped eyes
   with blinking eyelids, individual brows and nose profiles, and smiles:
-  voluminous black hair loosely gathered into a ponytail, a higher hairline,
-  two soft face-framing strands (shortened to two-thirds length) and a strapless
+  voluminous black hair loosely gathered into a ponytail, a higher hairline
+  without loose face-framing strands and a strapless
   orange/navy patterned top for host 1;
   swept-back, chin-length wavy brown hair with lighter strands but no drawn part, a broader
   forehead and firmer jaw for host 2. He sits slightly taller with broader
@@ -109,7 +109,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with the Saturday, October 17, 2026 wall calendar](docs/portrait-preview-2026-10-16-calendar-saturday.png)
+![Portrait view with a smooth shoulder outline from neck to upper arms](docs/portrait-preview-2026-10-19-smooth-shoulder-outline-v6.png)
 
 To regenerate the bundled sign textures, run
 `python3 scripts/render-studio-signs.py` with Pillow installed. The default
