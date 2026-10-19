@@ -17,11 +17,12 @@ pub struct Surface {
 
 const SHOULDER_Y: f32 = 0.55;
 const SHOULDER_RADIUS: f32 = 0.061;
+const INNER_SHOULDER_RADIUS: f32 = 0.140;
 pub const NECK_LOWERING: f32 = 0.025;
 const NECK_TOP_Y: f32 = 0.83 - NECK_LOWERING;
-const SHOULDER_TOP_Y: f32 = 0.6183;
+const CHEST_REFERENCE_Y: f32 = 0.6183;
 const CHEST_RADIUS_Y: f32 = 0.100;
-pub const CHEST_CENTER_Y: f32 = SHOULDER_TOP_Y - 3.0 * CHEST_RADIUS_Y;
+pub const CHEST_CENTER_Y: f32 = CHEST_REFERENCE_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
 
 pub fn wrist(side: f32) -> Vec3 {
@@ -212,12 +213,18 @@ fn upper_body_distance(index: usize, point: Vec3) -> f32 {
         return original;
     }
     let side = if point.x < 0.0 { -1.0 } else { 1.0 };
-    let start = Vec3::new(side * 0.16, 0.5432, 0.0);
+    let start = Vec3::new(side * 0.10, 0.665 - INNER_SHOULDER_RADIUS, 0.0);
     let end = shoulder(side) + arm_start(side);
     let lower = shoulder(side) + elbow(side);
-    let mut convex = convex_capsule(point, start, end, 0.09, SHOULDER_RADIUS)
+    let mut convex = convex_capsule(point, start, end, INNER_SHOULDER_RADIUS, SHOULDER_RADIUS)
         .min(convex_capsule(point, end, lower, SHOULDER_RADIUS, 0.040))
-        .min(convex_capsule(point, start, lower, 0.09, 0.040));
+        .min(convex_capsule(
+            point,
+            start,
+            lower,
+            INNER_SHOULDER_RADIUS,
+            0.040,
+        ));
     let first = end - start;
     let second = lower - start;
     let inverse_metric = Mat2::from_cols(
@@ -227,7 +234,10 @@ fn upper_body_distance(index: usize, point: Vec3) -> f32 {
     .inverse();
     let relative = point - start;
     let projected = inverse_metric * Vec2::new(relative.dot(first), relative.dot(second));
-    let radius_delta = Vec2::new(SHOULDER_RADIUS - 0.09, 0.040 - 0.09);
+    let radius_delta = Vec2::new(
+        SHOULDER_RADIUS - INNER_SHOULDER_RADIUS,
+        0.040 - INNER_SHOULDER_RADIUS,
+    );
     let radius_gradient = inverse_metric * radius_delta;
     let normal_distance = relative.dot(first.cross(second).normalize()).abs();
     let interior = projected
@@ -235,7 +245,7 @@ fn upper_body_distance(index: usize, point: Vec3) -> f32 {
     if interior.min_element() >= 0.0 && interior.element_sum() <= 1.0 {
         convex = convex.min(
             normal_distance * (1.0 - radius_delta.dot(radius_gradient)).sqrt()
-                - (0.09 + radius_delta.dot(projected)),
+                - (INNER_SHOULDER_RADIUS + radius_delta.dot(projected)),
         );
     }
     let neck_width = 0.32 - 0.16 * smoothstep((point.y - 0.50) / 0.09);
@@ -533,7 +543,7 @@ mod tests {
             .fold(f32::NEG_INFINITY, f32::max);
         let gap = shoulder_top - chest_top;
         assert!(
-            (gap - chest_height).abs() < 0.001,
+            (gap - chest_height - 0.010).abs() < 0.001,
             "gap {gap}, chest height {chest_height}"
         );
         let garment = super::super::portrait::garment(0);
@@ -622,7 +632,7 @@ mod tests {
     fn neck_root_does_not_swell_beyond_the_tapered_profile() {
         for index in 0..2 {
             for step in 0..=80 {
-                let height = 0.64 + step as f32 * 0.002;
+                let height = 0.70 - NECK_LOWERING + step as f32 * 0.002;
                 let profile = profile(index, height);
                 for segment in 0..64 {
                     let angle = segment as f32 / 64.0 * std::f32::consts::TAU;
@@ -695,6 +705,42 @@ mod tests {
     }
 
     #[test]
+    fn inner_shoulder_outline_has_no_step_or_flat_shelf() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let mut previous_height: Option<f32> = None;
+                let mut previous_slope: Option<f32> = None;
+                for step in 0..=180 {
+                    let horizontal = side * (0.12 + step as f32 * 0.001);
+                    let mut below = 0.50;
+                    let mut above = 0.80;
+                    for _ in 0..24 {
+                        let height = (below + above) * 0.5;
+                        if distance(index, Vec3::new(horizontal, height, 0.0)) < 0.0 {
+                            below = height;
+                        } else {
+                            above = height;
+                        }
+                    }
+                    let height = (below + above) * 0.5;
+                    if let Some(previous) = previous_height {
+                        let slope = (height - previous) / 0.001;
+                        assert!(
+                            (-0.45..=-0.12).contains(&slope),
+                            "shoulder step: host {index}, x {horizontal}, slope {slope}"
+                        );
+                        if let Some(previous) = previous_slope {
+                            assert!((slope - previous).abs() < 0.03);
+                        }
+                        previous_slope = Some(slope);
+                    }
+                    previous_height = Some(height);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn shoulder_tops_fall_outward_with_one_curvature_direction() {
         for index in 0..2 {
             for side in [-1.0, 1.0] {
@@ -752,6 +798,23 @@ mod tests {
     }
 
     #[test]
+    fn shoulder_roots_fill_the_upper_torso_depth_without_a_thin_step() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                for height in [0.50, 0.52, 0.54] {
+                    for depth in [-0.105, 0.105] {
+                        let point = Vec3::new(side * 0.22, height, depth);
+                        assert!(
+                            distance(index, point) < 0.0,
+                            "thin shoulder: host {index}, {point:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn combined_upper_arm_surface_keeps_a_regular_exterior_taper() {
         for index in 0..2 {
             for side in [-1.0, 1.0] {
@@ -779,8 +842,11 @@ mod tests {
                             }
                         }
                         let radius = (inside + outside) * 0.5;
+                        let shoulder_fullness =
+                            0.012 * (1.0 - smoothstep((fraction - 0.05) / 0.20));
                         assert!(
-                            (radius - expected).abs() < 0.002,
+                            radius >= expected - 0.002
+                                && radius <= expected + 0.002 + shoulder_fullness,
                             "host {index}, side {side}, angle {angle}, fraction {fraction}: {radius} vs {expected}"
                         );
                         assert!(radius <= previous_radius + 0.00001);

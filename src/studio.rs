@@ -90,7 +90,7 @@ const ARM_CLEARANCE: f32 = 0.005;
 
 #[derive(Component)]
 pub struct ArmBounds {
-    parts: [Transform; 5],
+    parts: [Transform; 7],
     vertices: Vec<Vec3>,
 }
 
@@ -166,17 +166,26 @@ pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
     )
 }
 
-fn hand_parts(side: f32) -> [Transform; 5] {
+fn hand_parts(side: f32) -> [Transform; 7] {
     let wrist = body::wrist(side);
     std::array::from_fn(|index| {
         if index == 0 {
             Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
                 .with_scale(Vec3::new(0.052, 0.031, 0.088))
-        } else {
+        } else if index <= 4 {
             Transform::from_translation(
                 wrist + Vec3::new(((index - 1) as f32 - 1.5) * 0.021, -0.002, 0.126),
             )
             .with_scale(Vec3::new(0.011, 0.018, 0.033))
+        } else {
+            let base = wrist + Vec3::new(-side * 0.035, 0.002, 0.043);
+            let joint = wrist + Vec3::new(-side * 0.065, 0.001, 0.080);
+            let tip = wrist + Vec3::new(-side * 0.079, -0.003, 0.108);
+            if index == 5 {
+                limb_transform(base, joint, 0.015)
+            } else {
+                limb_transform(joint, tip, 0.013)
+            }
         }
     })
 }
@@ -532,17 +541,13 @@ fn host(
         &palette.hair,
         Transform::default(),
     );
-    ellipsoid(
+    let back = meshes.add(portrait::back_hair(index));
+    object(
         commands,
-        geometry,
-        head,
+        Some(head),
+        &back,
         &palette.hair,
-        Vec3::new(0.0, portrait.hair_back_center, -0.10),
-        Vec3::new(
-            if index == 0 { 0.21 } else { 0.19 },
-            portrait.hair_back_half_height,
-            if index == 0 { 0.13 } else { 0.10 },
-        ),
+        Transform::default(),
     );
     if index == 0 {
         let tail = meshes.add(portrait::ponytail());
@@ -555,8 +560,8 @@ fn host(
         );
     }
     for side in [-1.0, 1.0] {
-        for lock in 0..if index == 0 { 1 } else { 5 } {
-            let hair = meshes.add(portrait::hair_lock(index, side, lock, false));
+        for lock in 0..if index == 0 { 0 } else { 5 } {
+            let hair = meshes.add(portrait::hair_lock(side, lock, false));
             object(
                 commands,
                 Some(head),
@@ -565,7 +570,7 @@ fn host(
                 Transform::default(),
             );
             if lock % 2 == 0 {
-                let streak = meshes.add(portrait::hair_lock(index, side, lock, true));
+                let streak = meshes.add(portrait::hair_lock(side, lock, true));
                 object(
                     commands,
                     Some(head),
@@ -852,6 +857,41 @@ pub fn setup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hands_have_connected_mirrored_thumbs_outside_the_palm() {
+        for side in [-1.0, 1.0] {
+            let parts = hand_parts(side);
+            let palm = parts[0];
+            let base = parts[5];
+            let tip = parts[6];
+            assert!(-side * (tip.translation.x - palm.translation.x) > palm.scale.x);
+            assert!(base.translation.z < tip.translation.z);
+            assert!(tip.translation.z < parts[1].translation.z);
+            let base_start = base.transform_point(-Vec3::Y);
+            assert!(
+                palm.to_matrix()
+                    .inverse()
+                    .transform_point3(base_start)
+                    .length()
+                    < 1.0
+            );
+            let base_end = base.transform_point(Vec3::Y);
+            let tip_start = tip.transform_point(-Vec3::Y);
+            assert!(base_end.distance(tip_start) < 0.01);
+            let opposite = hand_parts(-side);
+            for index in [5, 6] {
+                assert!(
+                    (parts[index].translation.x + opposite[index].translation.x).abs() < 0.00001
+                );
+                assert_eq!(
+                    parts[index].translation.yz(),
+                    opposite[index].translation.yz()
+                );
+                assert_eq!(parts[index].scale, opposite[index].scale);
+            }
+        }
+    }
 
     #[test]
     fn lowered_heads_keep_their_neck_overlap_in_the_production_scene() {

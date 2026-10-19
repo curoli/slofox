@@ -191,41 +191,48 @@ pub fn eyelid(index: usize, upper: bool) -> Mesh {
     indexed_surface(positions, indices)
 }
 
-fn hair_radii(index: usize) -> Vec3 {
+fn scalp_point(index: usize, height: f32, angle: f32, clearance: f32) -> Vec3 {
+    let head = super::sculpt::head(index);
+    let profile = head.profile(height);
+    let horizontal = profile.x * angle.sin();
+    let depth = if angle.cos() > 0.0 {
+        head.front(horizontal, height)
+    } else {
+        profile.y * angle.cos()
+    };
     Vec3::new(
-        Portrait::for_host(index).hair_width,
-        if index == 0 { 0.310 } else { 0.280 },
-        if index == 0 { 0.230 } else { 0.207 },
+        horizontal + clearance * angle.sin(),
+        height,
+        depth + clearance * angle.cos(),
     )
 }
 
+fn hairline_height(index: usize, angle: f32) -> f32 {
+    let front = angle.cos().max(0.0);
+    let transition = ((front - 0.10) / 0.75).clamp(0.0, 1.0);
+    let transition = transition * transition * (3.0 - 2.0 * transition);
+    let mut height =
+        0.19 + if index == 0 { 0.255 } else { 0.235 } * transition + 0.020 * front.powi(6);
+    if index == 1 {
+        height += 0.025 * (-((front - 0.65) / 0.20).powi(2)).exp();
+    }
+    height
+}
+
 pub fn hair_cap(index: usize) -> Mesh {
-    let portrait = Portrait::for_host(index);
-    let radii = hair_radii(index);
-    let rings = 18;
+    let top = super::sculpt::head(index).heights().1;
+    let rings = 64;
     let segments = 64;
     let mut positions = Vec::new();
     let mut indices = Vec::new();
     for ring in 0..=rings {
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
-            let front = angle.cos().max(0.0);
-            let transition = ((front - 0.10) / 0.75).clamp(0.0, 1.0);
-            let transition = transition * transition * (3.0 - 2.0 * transition);
-            let mut height =
-                0.19 + if index == 0 { 0.255 } else { 0.235 } * transition + 0.020 * front.powi(6);
-            if index == 1 {
-                height += 0.025 * (-((front - 0.65) / 0.20).powi(2)).exp();
-            }
-            let hairline = ((height - 0.264) / radii.y).acos();
-            let polar = (ring as f32 / rings as f32 * hairline).max(0.002);
-            let sweep = if index == 0 { 0.008 } else { 0.018 };
-            positions.push([
-                portrait.hair_width * polar.sin() * angle.sin()
-                    + portrait.hair_part * 0.12 * polar.cos(),
-                0.264 + radii.y * polar.cos() + sweep * angle.sin() * polar.sin(),
-                radii.z * polar.sin() * angle.cos(),
-            ]);
+            let height = hairline_height(index, angle);
+            let progress = ring as f32 / rings as f32;
+            let height = top + 0.006 + (height - top - 0.006) * (progress * PI * 0.5).sin();
+            let point = scalp_point(index, height, angle, 0.006);
+            positions.push(point.to_array());
             if ring < rings && segment < segments {
                 connect_ring(&mut indices, ring, segment, segments);
             }
@@ -237,111 +244,57 @@ pub fn hair_cap(index: usize) -> Mesh {
     indexed_surface(positions, indices)
 }
 
-pub fn hair_lock(index: usize, side: f32, lock: usize, highlight: bool) -> Mesh {
-    if index == 0 {
-        return face_framing_lock(side, highlight);
-    }
-    let portrait = Portrait::for_host(index);
-    let rings = if index == 1 { 32 } else { 22 };
-    let segments = 12;
-    let mut positions = Vec::new();
-    let mut indices = Vec::new();
-    for ring in 0..=rings {
-        let progress = ring as f32 / rings as f32;
-        let bend = (progress * PI).sin();
-        let wave = if index == 0 {
-            0.008 * (progress * PI * 2.0 + lock as f32).sin()
-        } else {
-            0.016 * (progress * PI * 2.0 + lock as f32 * 0.7).sin()
-        };
-        let mut horizontal = side * (0.157 + bend * 0.045 + lock as f32 * 0.011 + wave);
-        let mut root_taper = 1.0;
-        if index == 1 {
-            let root_depth = (0.013 - lock as f32 * 0.037) / 0.207;
-            let mut root_vertical: f32 = (0.455 - 0.264) / 0.280;
-            for _ in 0..4 {
-                let root_horizontal = side
-                    * (1.0_f32 - root_vertical.powi(2) - root_depth.powi(2))
-                        .max(0.001)
-                        .sqrt();
-                root_vertical = (0.455 - 0.264 - 0.018 * root_horizontal) / 0.280;
-            }
-            let root_horizontal = side
-                * (1.0_f32 - root_vertical.powi(2) - root_depth.powi(2))
-                    .max(0.001)
-                    .sqrt();
-            let root = (portrait.hair_width * root_horizontal
-                + portrait.hair_part * 0.12 * root_vertical)
-                * 0.98;
-            let blend = (progress / 0.35).clamp(0.0, 1.0);
-            let blend = blend * blend * (3.0 - 2.0 * blend);
-            horizontal = root * (1.0 - blend) + horizontal * blend;
-            let rounding = (progress / 0.14).clamp(0.0, 1.0);
-            root_taper = (rounding * rounding * (3.0 - 2.0 * rounding)).max(0.025);
-        }
-        let vertical = 0.455 - progress * portrait.hair_length;
-        let drape = if index == 0 && side < 0.0 {
-            progress * 0.13
-        } else {
-            0.0
-        };
-        let front = 0.048 - lock as f32 * 0.037 + bend * 0.008 + drape
-            - if index == 1 {
-                0.035 + progress * 0.04
-            } else {
-                0.0
-            };
-        let taper = (1.0 - progress).powf(0.30).max(0.06) * root_taper;
-        let width = if highlight {
-            0.003
-        } else if index == 1 {
-            0.024
-        } else {
-            0.031
-        } * taper;
-        let depth = if highlight { 0.003 } else { 0.026 } * taper;
-        for segment in 0..=segments {
-            let angle = segment as f32 / segments as f32 * PI * 2.0;
-            positions.push([
-                horizontal + width * angle.sin(),
-                vertical,
-                front + depth * angle.cos() + if highlight { 0.026 * taper } else { 0.0 },
-            ]);
-            if ring < rings && segment < segments {
-                connect_ring(&mut indices, ring, segment, segments);
-            }
-        }
-    }
-    for triangle in indices.as_chunks_mut::<3>().0 {
-        triangle.swap(1, 2);
-    }
-    indexed_surface(positions, indices)
-}
-
-fn face_framing_lock(side: f32, highlight: bool) -> Mesh {
+pub fn hair_lock(side: f32, lock: usize, highlight: bool) -> Mesh {
+    let portrait = Portrait::for_host(1);
     let rings = 32;
     let segments = 12;
     let mut positions = Vec::new();
     let mut indices = Vec::new();
     for ring in 0..=rings {
         let progress = ring as f32 / rings as f32;
-        let taper = (progress * PI).sin().max(0.0).powf(0.4).max(0.025);
-        let width = if highlight { 0.002 } else { 0.014 } * taper;
-        let depth = if highlight { 0.002 } else { 0.013 } * taper;
-        let horizontal = side
-            * (0.155
-                + 0.013 * progress
-                + 0.031 * (progress * PI).sin()
-                + 0.013 * (progress * PI * 2.0).sin());
-        let height = 0.455 - progress * 0.38;
-        let front = 0.090 + 0.025 * progress + 0.030 * (progress * PI).sin();
+        let rounding = (progress / 0.14).clamp(0.0, 1.0);
+        let root_taper = (rounding * rounding * (3.0 - 2.0 * rounding)).max(0.025);
+        let vertical = 0.455 - progress * portrait.hair_length;
+        let center = scalp_point(
+            1,
+            vertical,
+            side * (PI * 0.46 + lock as f32 * 0.16),
+            0.003 * root_taper,
+        );
+        let taper = (1.0 - progress).powf(0.30).max(0.06) * root_taper;
+        let width = if highlight { 0.003 } else { 0.009 } * taper;
+        let depth = if highlight { 0.002 } else { 0.009 } * taper;
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
             positions.push([
-                horizontal + width * angle.sin(),
-                height,
-                front + depth * angle.cos() + if highlight { 0.013 * taper } else { 0.0 },
+                center.x + width * angle.sin(),
+                vertical,
+                center.z + depth * angle.cos() + if highlight { 0.008 * taper } else { 0.0 },
             ]);
+            if ring < rings && segment < segments {
+                connect_ring(&mut indices, ring, segment, segments);
+            }
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        triangle.swap(1, 2);
+    }
+    indexed_surface(positions, indices)
+}
+
+pub fn back_hair(index: usize) -> Mesh {
+    let portrait = Portrait::for_host(index);
+    let rings = 32;
+    let segments = 48;
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for ring in 0..=rings {
+        let progress = ring as f32 / rings as f32;
+        let bottom = portrait.hair_back_center - portrait.hair_back_half_height;
+        let height = 0.40 + (bottom - 0.40) * progress;
+        for segment in 0..=segments {
+            let angle = PI * 0.5 + segment as f32 / segments as f32 * PI;
+            positions.push(scalp_point(index, height, angle, 0.007).to_array());
             if ring < rings && segment < segments {
                 connect_ring(&mut indices, ring, segment, segments);
             }
@@ -386,30 +339,18 @@ pub fn ponytail() -> Mesh {
 }
 
 pub fn crown_strand(index: usize, side: f32, strand: usize) -> Mesh {
-    let portrait = Portrait::for_host(index);
-    let radii = hair_radii(index);
-    let sweep = if index == 0 { 0.008 } else { 0.018 };
+    let top = super::sculpt::head(index).heights().1;
     let segments = 24;
     let mut positions = Vec::new();
     let mut normals = Vec::new();
     let mut indices = Vec::new();
     for step in 0..=segments {
         let progress = step as f32 / segments as f32;
-        let horizontal = portrait.hair_part * (1.0 - progress) + side * 0.173 * progress;
-        let depth = 0.025 + strand as f32 * 0.021 + progress * 0.012;
+        let height = top - 0.010 - (0.055 + strand as f32 * 0.010) * progress;
         for edge in [-1.0, 1.0] {
-            let horizontal = horizontal + edge * 0.0020;
-            let unit_z = depth / radii.z;
-            let mut unit_x = horizontal / portrait.hair_width;
-            let mut unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
-            for _ in 0..3 {
-                unit_x = (horizontal - portrait.hair_part * 0.12 * unit_y) / portrait.hair_width;
-                unit_y = (1.0 - unit_x.powi(2) - unit_z.powi(2)).max(0.001).sqrt();
-            }
-            let normal =
-                Vec3::new(unit_x / radii.x, unit_y / radii.y, unit_z / radii.z).normalize();
-            let point = Vec3::new(horizontal, 0.264 + radii.y * unit_y + sweep * unit_x, depth)
-                + normal * 0.0020;
+            let angle = side * (0.20 + progress * 1.10) + edge * 0.012;
+            let normal = Vec3::new(angle.sin(), 0.0, angle.cos());
+            let point = scalp_point(index, height, angle, 0.008);
             positions.push(point.to_array());
             normals.push(normal.to_array());
         }
@@ -591,10 +532,10 @@ mod tests {
         else {
             panic!("missing cap positions")
         };
-        let front_hairline = positions[18 * 65];
+        let front_hairline = positions[64 * 65];
         assert!(front_hairline[1] > 0.46);
-        assert!(positions.iter().any(|point| point[1] > 0.57));
-        assert!(positions.iter().any(|point| point[0].abs() > 0.22));
+        assert!(positions.iter().any(|point| point[1] > 0.50));
+        assert!(positions.iter().all(|point| point[0].abs() < 0.21));
         assert!(front_hairline[2] > face_front(0, front_hairline[0], front_hairline[1]));
         let tail = ponytail();
         let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -603,11 +544,14 @@ mod tests {
             panic!("missing ponytail positions")
         };
         assert!(positions.iter().all(|point| point[2] < -0.13));
-        let radii = hair_radii(0);
-        for point in &positions[..33] {
-            let unit = (Vec3::from_array(*point) - Vec3::new(0.0, 0.264, 0.0)) / radii;
-            assert!(unit.length_squared() < 1.0, "exposed ponytail root");
-        }
+        let root_front = positions[..33]
+            .iter()
+            .map(|point| point[2])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            root_front > -contour_sample(0, 0.33).y,
+            "detached ponytail root"
+        );
         assert!(positions.iter().any(|point| point[1] < -0.41));
         let middle = &positions[24 * 33..25 * 33];
         let width = middle
@@ -619,20 +563,6 @@ mod tests {
                 .map(|point| point[0])
                 .fold(f32::INFINITY, f32::min);
         assert!(width > 0.26);
-        for side in [-1.0, 1.0] {
-            let strand = hair_lock(0, side, 0, false);
-            let Some(VertexAttributeValues::Float32x3(positions)) =
-                strand.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                panic!("missing framing strand positions")
-            };
-            assert!(positions.iter().all(|point| side * point[0] > 0.15));
-            let bottom = positions
-                .iter()
-                .map(|point| point[1])
-                .fold(f32::INFINITY, f32::min);
-            assert!((bottom - 0.075).abs() < 0.00001);
-        }
     }
 
     #[test]
@@ -665,25 +595,20 @@ mod tests {
 
     #[test]
     fn microphone_hair_roots_are_tapered_and_embedded_in_the_cap() {
-        let portrait = Portrait::for_host(1);
         for side in [-1.0, 1.0] {
             for lock in 0..5 {
                 for highlight in [false, true] {
-                    let mesh = hair_lock(1, side, lock, highlight);
+                    let mesh = hair_lock(side, lock, highlight);
                     let Some(VertexAttributeValues::Float32x3(positions)) =
                         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
                     else {
                         panic!("missing hair positions")
                     };
                     for &[horizontal, height, depth] in &positions[..13] {
-                        let unit_horizontal = (horizontal
-                            - portrait.hair_part * 0.12 * (height - 0.264) / 0.280)
-                            / (portrait.hair_width - portrait.hair_part * 0.12 * 0.018 / 0.280);
-                        let unit_vertical = (height - 0.264 - 0.018 * unit_horizontal) / 0.280;
-                        let unit_depth = depth / 0.207;
+                        let expected =
+                            scalp_point(1, height, side * (PI * 0.46 + lock as f32 * 0.16), 0.0);
                         assert!(
-                            unit_horizontal.powi(2) + unit_vertical.powi(2) + unit_depth.powi(2)
-                                <= 1.002,
+                            Vec2::new(horizontal - expected.x, depth - expected.z).length() < 0.002,
                             "exposed hair root: side {side}, lock {lock}, point {horizontal}, {height}, {depth}"
                         );
                     }
@@ -702,6 +627,53 @@ mod tests {
     }
 
     #[test]
+    fn hair_shells_follow_the_authored_scalp_without_floating_gaps() {
+        for index in 0..2 {
+            for (mesh, segments, start, sweep) in [
+                (hair_cap(index), 64, 0.0, PI * 2.0),
+                (back_hair(index), 48, PI * 0.5, PI),
+            ] {
+                let Some(VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing hair positions")
+                };
+                for (vertex, &[horizontal, height, depth]) in positions.iter().enumerate() {
+                    let angle = start + (vertex % (segments + 1)) as f32 / segments as f32 * sweep;
+                    let surface = scalp_point(index, height, angle, 0.0);
+                    let gap = Vec2::new(horizontal - surface.x, depth - surface.z).length();
+                    assert!(gap < 0.015, "floating hair: host {index}, gap {gap}");
+                    assert!(height <= super::super::sculpt::head(index).heights().1 + 0.007);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn microphone_hair_drapes_close_to_the_head_without_flared_ends() {
+        for side in [-1.0, 1.0] {
+            for lock in 0..5 {
+                for highlight in [false, true] {
+                    let mesh = hair_lock(side, lock, highlight);
+                    let Some(VertexAttributeValues::Float32x3(positions)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("missing hair positions")
+                    };
+                    for &[horizontal, height, _] in positions {
+                        if height <= 0.24 {
+                            assert!(horizontal.abs() <= 0.22);
+                        }
+                        if height <= 0.05 {
+                            assert!(horizontal.abs() <= 0.19);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn microphone_hair_ends_near_the_chin_without_a_drawn_part() {
         let male = Portrait::for_host(1);
         assert!(!male.draw_hair_part);
@@ -710,7 +682,7 @@ mod tests {
         for side in [-1.0, 1.0] {
             for lock in 0..5 {
                 for highlight in [false, true] {
-                    let mesh = hair_lock(1, side, lock, highlight);
+                    let mesh = hair_lock(side, lock, highlight);
                     let Some(VertexAttributeValues::Float32x3(positions)) =
                         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
                     else {
@@ -765,15 +737,17 @@ mod tests {
     #[test]
     fn portrait_meshes_are_finite_indexed_and_bounded() {
         for index in 0..2 {
-            let meshes = [
+            let mut meshes = vec![
                 face(index),
                 eyelid(index, true),
                 eyelid(index, false),
                 hair_cap(index),
-                hair_lock(index, -1.0, 0, false),
-                hair_lock(index, 1.0, 4, true),
+                back_hair(index),
                 garment(index),
             ];
+            if index == 1 {
+                meshes.extend([hair_lock(-1.0, 0, false), hair_lock(1.0, 4, true)]);
+            }
             for mesh in meshes {
                 let Some(VertexAttributeValues::Float32x3(positions)) =
                     mesh.attribute(Mesh::ATTRIBUTE_POSITION)
