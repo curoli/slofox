@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with balanced head profiles and thicker gathered hair](docs/studio-preview-2026-10-20-balanced-heads.png)
+![Studio with intermediate head depth and a rounded female hairline](docs/studio-preview-2026-10-20-midpoint-heads.png)
 
 ## Prototype
 
@@ -121,7 +121,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with balanced head profiles and thicker gathered hair](docs/portrait-preview-2026-10-20-balanced-heads.png)
+![Portrait view with intermediate head depth and a rounded female hairline](docs/portrait-preview-2026-10-20-midpoint-heads.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 

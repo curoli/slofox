@@ -249,7 +249,7 @@ pub fn hair_cap(index: usize) -> Mesh {
     for ring in 0..=rings {
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
-            let height = hairline_height(index, angle);
+            let height = hairline_height(index, angle) + if index == 0 { 0.012 } else { 0.0 };
             let progress = ring as f32 / rings as f32;
             let height = top + 0.006 + (height - top - 0.006) * (progress * PI * 0.5).sin();
             let point = hair_shell_point(index, height, angle, 0.006);
@@ -260,12 +260,20 @@ pub fn hair_cap(index: usize) -> Mesh {
         }
     }
     if index == 0 {
-        for segment in 0..=segments {
-            let angle = segment as f32 / segments as f32 * PI * 2.0;
-            positions
-                .push(scalp_point(index, hairline_height(index, angle), angle, 0.001).to_array());
-            if segment < segments {
-                connect_ring(&mut indices, rings, segment, segments);
+        for rim in 1..=6 {
+            let rounding = rim as f32 / 6.0 * PI * 0.5;
+            for segment in 0..=segments {
+                let angle = segment as f32 / segments as f32 * PI * 2.0;
+                let height = hairline_height(index, angle) + 0.012 * (1.0 - rounding.sin());
+                let skin = scalp_point(index, height, angle, 0.0);
+                let shell = hair_shell_point(index, height, angle, 0.006);
+                let point = skin
+                    + (shell - skin) * rounding.cos()
+                    + (scalp_point(index, height, angle, 0.001) - skin) * (1.0 - rounding.cos());
+                positions.push(point.to_array());
+                if segment < segments {
+                    connect_ring(&mut indices, rings + rim - 1, segment, segments);
+                }
             }
         }
         let center = positions.len() as u32;
@@ -574,23 +582,35 @@ mod tests {
         };
         let triangles: Vec<_> = mesh.indices().unwrap().iter().collect();
         let shell_vertices = 65 * 65;
-        assert_eq!(positions.len(), shell_vertices + 65 + 1);
+        assert_eq!(positions.len(), shell_vertices + 6 * 65 + 1);
         for segment in 0..64 {
             let angle = segment as f32 / 64.0 * PI * 2.0;
             let outer = 64 * 65 + segment;
-            let inner = shell_vertices + segment;
+            let inner = shell_vertices + 5 * 65 + segment;
             let skin = scalp_point(0, hairline_height(0, angle), angle, 0.0);
             assert!((Vec3::from_array(positions[inner]) - skin).length() < 0.002);
-            let thickness =
-                Vec3::from_array(positions[outer]).distance(Vec3::from_array(positions[inner]));
+            let thickness = Vec3::from_array(positions[outer]).distance(scalp_point(
+                0,
+                hairline_height(0, angle) + 0.012,
+                angle,
+                0.0,
+            ));
             assert!((0.030..0.060).contains(&thickness));
-            assert!(
-                triangles
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .any(|triangle| triangle.contains(&outer) && triangle.contains(&inner))
-            );
+            for rim in 0..6 {
+                let start = outer + rim * 65;
+                let end = start + 65;
+                assert!(
+                    triangles
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .any(|triangle| { triangle.contains(&start) && triangle.contains(&end) })
+                );
+            }
+            let first =
+                Vec3::from_array(positions[outer + 65]) - Vec3::from_array(positions[outer]);
+            let last = Vec3::from_array(positions[inner]) - Vec3::from_array(positions[inner - 65]);
+            assert!(first.normalize().dot(last.normalize()) < 0.85);
         }
         assert!(
             positions

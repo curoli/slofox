@@ -886,7 +886,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn heads_balance_the_forehead_and_rear_distances_from_the_ear_plane() {
+    fn heads_have_midpoint_rear_depths_and_partially_covered_browser_ears() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
             .init_resource::<slofox::signs::StudioSigns>()
@@ -931,12 +931,12 @@ mod tests {
                 minimum = minimum.min(Vec3::from_array(*position));
             }
             let scale = host_scale(index);
-            let forehead = sculpt::head(index).front(0.0, if index == 0 { 0.345 } else { 0.352 });
             let rear_distance = (ear_depths[index] - minimum.z) * scale.z;
-            let forehead_distance = (forehead - ear_depths[index]) * scale.z;
+            let midpoint_depth = if index == 0 { 0.2268 } else { 0.25925 };
+            let expected_distance = (ear_depths[index] + midpoint_depth) * scale.z;
             assert!(
-                (rear_distance - forehead_distance).abs() < 0.001,
-                "host {index}: rear {rear_distance}, forehead {forehead_distance}"
+                (rear_distance - expected_distance).abs() < 0.001,
+                "host {index}: rear {rear_distance}, expected {expected_distance}"
             );
             if index == 0 {
                 let hair = portrait::hair_cap(index);

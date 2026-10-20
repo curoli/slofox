@@ -225,9 +225,13 @@ mod tests {
             let peak = (0..1000)
                 .map(|step| head.profile(0.095 + step as f32 * 0.00035).y)
                 .fold(0.0_f32, f32::max);
-            let ear_plane = if index == 0 { 0.015 } else { -0.01 };
-            let forehead = head.front(0.0, if index == 0 { 0.345 } else { 0.352 });
-            assert!((peak + ear_plane - (forehead - ear_plane)).abs() < 0.001);
+            let previous_peaks = if index == 0 {
+                [0.3146, 0.139]
+            } else {
+                [0.3225, 0.196]
+            };
+            let midpoint = (previous_peaks[0] + previous_peaks[1]) * 0.5;
+            assert!((peak - midpoint).abs() < 0.001);
             for section in &head.sections[2..head.sections.len() - 2] {
                 let epsilon = 0.00001;
                 let center = head.profile(section.height).y;
