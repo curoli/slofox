@@ -294,17 +294,21 @@ fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind
 fn mouth_geometry(index: usize) -> [Transform; 4] {
     let portrait = portrait::Portrait::for_host(index);
     let mouth_depth = portrait::face_front(index, 0.0, portrait.mouth_y);
-    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002)
-        .with_scale(Vec3::new(portrait.mouth_width, 0.0005, 0.003));
-    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, mouth_depth + 0.009)
-        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
-    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, mouth_depth + 0.011)
-        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
-    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, mouth_depth + 0.007)
+    let rim_depth = mouth_depth + 0.002;
+    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, rim_depth).with_scale(Vec3::new(
+        portrait.mouth_width,
+        0.0005,
+        0.0008,
+    ));
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, rim_depth + 0.0015)
+        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.004));
+    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, rim_depth + 0.0015)
+        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.004));
+    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, rim_depth + 0.001)
         .with_scale(Vec3::new(
             portrait.mouth_width * if index == 0 { 0.75 } else { 0.73 },
             if index == 0 { 0.010 } else { 0.004 },
-            0.0015,
+            0.0002,
         ));
     [mouth_rest, upper_rest, lip_rest, teeth_rest]
 }
@@ -1326,6 +1330,42 @@ mod tests {
         let corrected = arm.translation;
         bounds.keep_above_desk(&host, &mut arm);
         assert!((corrected - arm.translation).length() < 0.00001);
+    }
+
+    #[test]
+    fn lips_overlap_the_mouth_rim_in_depth_instead_of_floating_in_front() {
+        use bevy::mesh::VertexAttributeValues;
+
+        for index in 0..2 {
+            let [mouth, upper, lower, _] = mouth_geometry(index);
+            for (upper_lip, rest) in [(true, upper), (false, lower)] {
+                let mesh = portrait::lip(index, upper_lip);
+                let Some(VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing lip positions")
+                };
+                for round_step in 0..=10 {
+                    let round = round_step as f32 / 10.0;
+                    let rim_depth = mouth.translation.z + round * 0.008;
+                    let mut pose = rest;
+                    pose.translation.z += round * 0.008;
+                    let offset = pose.translation.z - rim_depth;
+                    assert!((0.0..0.002).contains(&offset));
+                    assert!(pose.translation.z - pose.scale.z < rim_depth);
+                    assert!(pose.translation.z + pose.scale.z - rim_depth < 0.006);
+                    let mut embedded_vertices = 0;
+                    for position in positions {
+                        if position[0].abs() < 0.5 && position[2] < -0.75 {
+                            let point = pose.transform_point(Vec3::from_array(*position));
+                            assert!(point.z < rim_depth);
+                            embedded_vertices += 1;
+                        }
+                    }
+                    assert!(embedded_vertices > 10);
+                }
+            }
+        }
     }
 
     #[test]
