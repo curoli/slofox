@@ -330,6 +330,7 @@ fn animate_parts(
     session: Res<Session>,
     hosts: Query<&Transform, With<Host>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut attention: Local<[studio::HeadAttention; 2]>,
     mut parts: AnimatedPartsQuery<'_, '_>,
 ) {
     let elapsed = time.elapsed_secs();
@@ -339,13 +340,17 @@ fn animate_parts(
         *transform = part.rest;
         match part.kind {
             PartKind::Head => {
-                let toward_partner = if part.host == 0 { 1.0 } else { -1.0 };
+                let yaw = attention[part.host].update(
+                    time.delta_secs(),
+                    elapsed,
+                    part.host,
+                    pose.jaw_open,
+                    session.poses[1 - part.host].jaw_open,
+                );
                 transform.rotation = Quat::from_euler(
                     EulerRot::XYZ,
                     0.025 * (phase * 1.2).sin() + pose.jaw_open * 0.025 * (phase * 3.0).sin(),
-                    toward_partner
-                        * (0.07 + 0.08 * (phase * 0.28).sin())
-                        * (1.0 - pose.jaw_open * 0.5),
+                    yaw,
                     0.025 * (phase * 0.64).sin(),
                 );
             }
