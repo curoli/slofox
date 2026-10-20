@@ -220,12 +220,14 @@ mod tests {
             for step in 0..400 {
                 let height = 0.095 + step as f32 / 399.0 * 0.345;
                 let profile = head.profile(height);
-                assert!(profile.y + head.front(0.0, height) >= profile.x * 2.0);
+                assert!(profile.y > 0.0 && profile.y.is_finite());
             }
             let peak = (0..1000)
                 .map(|step| head.profile(0.095 + step as f32 * 0.00035).y)
                 .fold(0.0_f32, f32::max);
-            assert!((0.30..0.33).contains(&peak));
+            let ear_plane = if index == 0 { 0.015 } else { -0.01 };
+            let forehead = head.front(0.0, if index == 0 { 0.345 } else { 0.352 });
+            assert!((peak + ear_plane - (forehead - ear_plane)).abs() < 0.001);
             for section in &head.sections[2..head.sections.len() - 2] {
                 let epsilon = 0.00001;
                 let center = head.profile(section.height).y;

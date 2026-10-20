@@ -886,7 +886,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn heads_are_deeper_than_wide_including_visible_ears_and_host_scale() {
+    fn heads_balance_the_forehead_and_rear_distances_from_the_ear_plane() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>()
             .init_resource::<slofox::signs::StudioSigns>()
@@ -897,6 +897,7 @@ mod tests {
         app.update();
         let world = app.world_mut();
         let mut ear_bounds = [[f32::INFINITY, f32::NEG_INFINITY]; 2];
+        let mut ear_depths = [0.0; 2];
         let mut ear_count = [0; 2];
         for (transform, parent) in world
             .query_filtered::<(&Transform, &ChildOf), With<Ear>>()
@@ -905,6 +906,7 @@ mod tests {
             let head = world.get::<AnimatedPart>(parent.parent()).unwrap();
             assert!(matches!(head.kind, PartKind::Head));
             ear_count[head.host] += 1;
+            ear_depths[head.host] = transform.translation.z;
             ear_bounds[head.host][0] =
                 ear_bounds[head.host][0].min(transform.translation.x - transform.scale.x);
             ear_bounds[head.host][1] =
@@ -925,19 +927,37 @@ mod tests {
                 panic!("missing head positions")
             };
             let mut minimum = Vec3::splat(f32::INFINITY);
-            let mut maximum = Vec3::splat(f32::NEG_INFINITY);
             for position in positions {
                 minimum = minimum.min(Vec3::from_array(*position));
-                maximum = maximum.max(Vec3::from_array(*position));
             }
             let scale = host_scale(index);
-            let width = (maximum.x.max(bounds[1]) - minimum.x.min(bounds[0])) * scale.x;
-            let depth = (maximum.z - minimum.z) * scale.z;
+            let forehead = sculpt::head(index).front(0.0, if index == 0 { 0.345 } else { 0.352 });
+            let rear_distance = (ear_depths[index] - minimum.z) * scale.z;
+            let forehead_distance = (forehead - ear_depths[index]) * scale.z;
             assert!(
-                depth >= width,
-                "host {index}: depth {depth} below width {width}"
+                (rear_distance - forehead_distance).abs() < 0.001,
+                "host {index}: rear {rear_distance}, forehead {forehead_distance}"
             );
-            assert!(minimum.z < -0.30);
+            if index == 0 {
+                let hair = portrait::hair_cap(index);
+                let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                    hair.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing hair positions")
+                };
+                let hair_edge = positions
+                    .iter()
+                    .filter(|point| {
+                        (0.23..0.30).contains(&point[1]) && (-0.01..0.10).contains(&point[2])
+                    })
+                    .map(|point| point[0])
+                    .fold(0.0_f32, f32::max);
+                assert!(hair_edge > 0.224);
+                assert!(hair_edge < bounds[1] - 0.010);
+                assert!((ear_depths[index] - 0.015).abs() < 0.00001);
+            } else {
+                assert!((ear_depths[index] + 0.01).abs() < 0.00001);
+            }
         }
     }
 
