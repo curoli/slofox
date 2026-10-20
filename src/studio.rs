@@ -7,11 +7,14 @@ use bevy::{
     render::view::NoIndirectDrawing,
 };
 
+mod attention;
 mod body;
 mod decor;
 mod desk;
 mod portrait;
 mod sculpt;
+
+pub use attention::HeadAttention;
 
 pub fn teeth_pose(index: usize, mut rest: Transform, jaw: f32, round: f32, wide: f32) -> Transform {
     rest.scale.y *= portrait::tooth_visibility(index, jaw);

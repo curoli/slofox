@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with corrected AI subtitle and current-date calendar](docs/studio-preview-2026-10-19-ai-subtitle.png)
+![Studio with attentive listening head turns](docs/studio-preview-2026-10-20-listening-head-turns.png)
 
 ## Prototype
 
@@ -62,6 +62,10 @@ OBS records the app window and the two audio channels.
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
 - Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
+  Both hosts occasionally glance toward each other, with stronger, longer turns
+  while listening to the other voice. Smooth transitions, short speech-gap
+  tolerance and periodic forward-facing breaks avoid abrupt turns or staring.
+  Their glance schedules differ, and their existing nods and head tilts remain.
   Arms, hands and fingers stay above the desk surface during these movements
   using a lightweight geometric constraint over arm-surface vertices and hand
   bounds, without a physics engine.
@@ -111,7 +115,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with corrected AI subtitle and current-date calendar](docs/portrait-preview-2026-10-19-ai-subtitle.png)
+![Portrait view with attentive listening head turns](docs/portrait-preview-2026-10-20-listening-head-turns.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 
