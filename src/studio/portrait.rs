@@ -318,7 +318,7 @@ pub fn ponytail() -> Mesh {
         let depth = 0.025 * (1.0 - progress) + 0.075 * fullness + 0.002;
         let horizontal = 0.11 * (progress * PI * 0.85).sin();
         let height = 0.33 - progress * Portrait::for_host(0).hair_length;
-        let back = -0.17 - 0.16 * (progress * PI * 0.8).sin();
+        let back = -contour_sample(0, 0.33).y + 0.022 - 0.16 * (progress * PI * 0.8).sin();
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
             let wave = 1.0 + 0.035 * (angle * 9.0 + progress * 5.0).cos() * fullness;
@@ -847,7 +847,8 @@ mod tests {
                 let height = 0.015 + step as f32 * 0.00050;
                 let sample = contour_sample(index, height);
                 assert!(sample.is_finite() && sample.min_element() > 0.0);
-                assert!(sample.max_element() < 0.21);
+                assert!(sample.x < 0.21);
+                assert!(sample.y < 0.33);
                 let depth = face_front(index, 0.0, height);
                 assert!(depth.is_finite() && (0.0..0.25).contains(&depth));
             }

@@ -214,6 +214,29 @@ mod tests {
     }
 
     #[test]
+    fn cranial_sections_have_full_rounded_back_profiles() {
+        for index in 0..2 {
+            let head = head(index);
+            for step in 0..400 {
+                let height = 0.095 + step as f32 / 399.0 * 0.345;
+                let profile = head.profile(height);
+                assert!(profile.y + head.front(0.0, height) >= profile.x * 2.0);
+            }
+            let peak = (0..1000)
+                .map(|step| head.profile(0.095 + step as f32 * 0.00035).y)
+                .fold(0.0_f32, f32::max);
+            assert!((0.30..0.33).contains(&peak));
+            for section in &head.sections[2..head.sections.len() - 2] {
+                let epsilon = 0.00001;
+                let center = head.profile(section.height).y;
+                let left = (center - head.profile(section.height - epsilon).y) / epsilon;
+                let right = (head.profile(section.height + epsilon).y - center) / epsilon;
+                assert!((left - right).abs() < 0.03);
+            }
+        }
+    }
+
+    #[test]
     fn malformed_head_assets_are_rejected() {
         for source in [
             "{}",

@@ -38,6 +38,9 @@ pub struct Host {
 }
 
 #[derive(Component)]
+struct Ear;
+
+#[derive(Component)]
 pub struct AnimatedPart {
     pub host: usize,
     pub kind: PartKind,
@@ -357,14 +360,33 @@ fn host(
         Transform::default(),
     );
     for side in [-1.0, 1.0] {
-        ellipsoid(
+        let ear = ellipsoid(
             commands,
             geometry,
             head,
             &palette.skin,
-            Vec3::new(side * 0.18, 0.24, -0.01),
-            Vec3::new(0.027, 0.049, 0.02),
+            if index == 0 {
+                Vec3::new(side * 0.219, 0.265, 0.015)
+            } else {
+                Vec3::new(side * 0.18, 0.24, -0.01)
+            },
+            if index == 0 {
+                Vec3::new(0.033, 0.058, 0.033)
+            } else {
+                Vec3::new(0.027, 0.049, 0.02)
+            },
         );
+        commands.entity(ear).insert(Ear);
+        if index == 0 {
+            ellipsoid(
+                commands,
+                geometry,
+                head,
+                &palette.crease,
+                Vec3::new(side * 0.234, 0.267, 0.039),
+                Vec3::new(0.011, 0.034, 0.007),
+            );
+        }
         let eye_rest = Transform::from_xyz(
             side * portrait.eye_spacing,
             portrait.eye_y,
@@ -862,6 +884,62 @@ pub fn setup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heads_are_deeper_than_wide_including_visible_ears_and_host_scale() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<slofox::signs::StudioSigns>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let mut ear_bounds = [[f32::INFINITY, f32::NEG_INFINITY]; 2];
+        let mut ear_count = [0; 2];
+        for (transform, parent) in world
+            .query_filtered::<(&Transform, &ChildOf), With<Ear>>()
+            .iter(world)
+        {
+            let head = world.get::<AnimatedPart>(parent.parent()).unwrap();
+            assert!(matches!(head.kind, PartKind::Head));
+            ear_count[head.host] += 1;
+            ear_bounds[head.host][0] =
+                ear_bounds[head.host][0].min(transform.translation.x - transform.scale.x);
+            ear_bounds[head.host][1] =
+                ear_bounds[head.host][1].max(transform.translation.x + transform.scale.x);
+            if head.host == 0 {
+                let skin = sculpt::head(0).profile(transform.translation.y).x;
+                assert!(transform.translation.x.abs() - transform.scale.x < skin);
+                assert!(transform.translation.x.abs() + transform.scale.x > skin + 0.04);
+                assert!((transform.translation.y - 0.265).abs() < 0.00001);
+            }
+        }
+        assert_eq!(ear_count, [2, 2]);
+        for (index, bounds) in ear_bounds.iter().enumerate() {
+            let mesh = portrait::face(index);
+            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing head positions")
+            };
+            let mut minimum = Vec3::splat(f32::INFINITY);
+            let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+            for position in positions {
+                minimum = minimum.min(Vec3::from_array(*position));
+                maximum = maximum.max(Vec3::from_array(*position));
+            }
+            let scale = host_scale(index);
+            let width = (maximum.x.max(bounds[1]) - minimum.x.min(bounds[0])) * scale.x;
+            let depth = (maximum.z - minimum.z) * scale.z;
+            assert!(
+                depth >= width,
+                "host {index}: depth {depth} below width {width}"
+            );
+            assert!(minimum.z < -0.30);
+        }
+    }
 
     #[test]
     fn hands_have_connected_mirrored_thumbs_outside_the_palm() {

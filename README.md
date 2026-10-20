@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with attentive listening head turns](docs/studio-preview-2026-10-20-listening-head-turns.png)
+![Studio with rounded back-of-head geometry and visible ears](docs/studio-preview-2026-10-20-rounded-heads.png)
 
 ## Prototype
 
@@ -98,6 +98,10 @@ These are manual, reference-guided interpretations, not scans or a claim of
 exact likeness. The first head has fuller oval cheeks and a broader smile;
 the second has a longer face, higher forehead and stronger nose bridge.
 The nose is part of the closed head surface rather than a separate overlay.
+Both skulls have rounded occipital volume: their front-to-back depth is at least
+their width, including the ears and each host's scale. Hair follows the deeper
+scalp, and the ponytail is attached to the revised back of the head. Host 1 has
+visible, attached ears with subtle inner contours, aligned between brow and nose.
 Eyes, brows and animated lips are positioned from that same surface.
 The upper tooth row grows downward from a fixed gumline and stays between
 the shallow mouth cavity and lips, including rounded and wide mouth shapes.
@@ -115,7 +119,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with attentive listening head turns](docs/portrait-preview-2026-10-20-listening-head-turns.png)
+![Portrait view with rounded back-of-head geometry and visible ears](docs/portrait-preview-2026-10-20-rounded-heads.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 
