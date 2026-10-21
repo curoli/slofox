@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with more visibly curved fingers and neck-axis shoulder lifts](docs/studio-preview-2026-10-21-more-curved-fingers.png)
+![Studio with three-part fingers bent at their middle and end joints](docs/studio-preview-2026-10-21-bent-finger-joints.png)
 
 ## Prototype
 
@@ -75,7 +75,8 @@ OBS records the app window and the two audio channels.
   occasional shifts vary their tabletop positions instead of mirroring both arms.
   Flatter palms and approximately palm-length fingers with continuous rounded
   shafts avoid pinched joints; the middle fingers are slightly longer than the others.
-  Finger shafts themselves curve visibly rather than merely tilting at their base.
+  Fingers have three phalanges, with rounded bends at the middle and end joints
+  rather than merely tilting at their base. Joint transitions keep their thickness.
   The thumb follows one continuous tapered curve, with matching positions and
   normals across its joint. Hand bounds include these curved surfaces.
   Both hosts occasionally glance toward each other, with stronger, longer turns
@@ -137,7 +138,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with more visibly curved fingers and smoothly joined thumbs](docs/portrait-preview-2026-10-21-more-curved-fingers.png)
+![Portrait view with bent finger joints and smoothly joined thumbs](docs/portrait-preview-2026-10-21-bent-finger-joints.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 

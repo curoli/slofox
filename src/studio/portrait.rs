@@ -140,34 +140,61 @@ pub fn face(index: usize) -> Mesh {
     mesh
 }
 
+const FINGER_ASPECT: f32 = 5.0;
+
+fn finger_bend(amount: f32) -> f32 {
+    let ease = |value: f32| {
+        let value = value.clamp(0.0, 1.0);
+        value * value * (3.0 - 2.0 * value)
+    };
+    28.0_f32.to_radians() * ease((amount - 0.40) / 0.10)
+        + 18.0_f32.to_radians() * ease((amount - 0.73) / 0.08)
+}
+
+fn finger_frame(length: f32, vertical: bool) -> (Vec3, Vec3) {
+    if vertical {
+        return (Vec3::new(0.0, 0.0, length), Vec3::Y);
+    }
+    let amount = ((length + 1.0) * 0.5).clamp(0.0, 1.0);
+    let step = amount / 96.0;
+    let mut center = -Vec3::Z;
+    for sample in 0..96 {
+        let bend = finger_bend((sample as f32 + 0.5) * step);
+        center += Vec3::new(0.0, -FINGER_ASPECT * bend.sin(), bend.cos()) * (2.0 * step);
+    }
+    let bend = finger_bend(amount);
+    (
+        center,
+        Vec3::new(0.0, bend.cos(), bend.sin() / FINGER_ASPECT),
+    )
+}
+
 pub fn finger(vertical: bool) -> Mesh {
     let segments = 20;
     let mut positions = Vec::new();
     let mut indices = Vec::new();
-    for ring in 0..33 {
+    for ring in 0..49 {
         let (center, angle) = if ring <= 8 {
             (-0.8, -PI * 0.5 + ring as f32 / 8.0 * PI * 0.5)
-        } else if ring <= 24 {
-            (-0.8 + (ring - 8) as f32 / 16.0 * 1.6, 0.0)
+        } else if ring <= 40 {
+            (-0.8 + (ring - 8) as f32 / 32.0 * 1.6, 0.0)
         } else {
-            (0.8, (ring - 24) as f32 / 8.0 * PI * 0.5)
+            (0.8, (ring - 40) as f32 / 8.0 * PI * 0.5)
         };
         let radius = angle.cos().max(0.0);
         let length = center + 0.2 * angle.sin();
+        let (center, normal) = finger_frame(length, vertical);
         for segment in 0..=segments {
             let around = segment as f32 / segments as f32 * PI * 2.0;
             let horizontal = radius * around.sin();
             let depth = radius * around.cos();
+            let point = center + Vec3::X * horizontal + normal * depth;
             positions.push(if vertical {
-                [horizontal, length, -depth]
+                [point.x, point.z, -point.y]
             } else {
-                [
-                    horizontal,
-                    depth - 1.2 * ((length + 1.0) * 0.5).powi(2),
-                    length,
-                ]
+                point.to_array()
             });
-            if ring < 32 && segment < segments {
+            if ring < 48 && segment < segments {
                 connect_ring(&mut indices, ring, segment, segments);
             }
         }
@@ -689,7 +716,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn finger_shafts_curve_progressively_without_joint_kinks() {
+    fn finger_phalanges_bend_at_both_internal_joints_without_tilting_the_root() {
         let mesh = finger(false);
         let Some(VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -700,19 +727,27 @@ mod tests {
             .as_chunks::<21>()
             .0
             .iter()
-            .map(|ring| (Vec3::from_array(ring[0]) + Vec3::from_array(ring[10])) * 0.5)
+            .map(|ring| {
+                let center = (Vec3::from_array(ring[0]) + Vec3::from_array(ring[10])) * 0.5;
+                Vec3::new(center.x, center.y / FINGER_ASPECT, center.z)
+            })
             .collect();
-        for ring in 9..24 {
-            let before = centers[ring].y - centers[ring - 1].y;
-            let after = centers[ring + 1].y - centers[ring].y;
-            assert!(after < before && after < 0.0);
-            assert!((after - before).abs() < 0.007);
+        let proximal = (centers[16] - centers[12]).normalize();
+        let middle = (centers[30] - centers[26]).normalize();
+        let distal = (centers[44] - centers[40]).normalize();
+        assert!(proximal.angle_between(Vec3::Z) < 0.01);
+        assert!((proximal.angle_between(middle) - 28.0_f32.to_radians()).abs() < 0.01);
+        assert!((middle.angle_between(distal) - 18.0_f32.to_radians()).abs() < 0.01);
+        assert!(centers[48].y < -0.5);
+        for ring in 10..40 {
+            let before = (centers[ring] - centers[ring - 1]).normalize();
+            let after = (centers[ring + 1] - centers[ring]).normalize();
+            assert!(before.angle_between(after) < 0.20);
         }
-        assert!((centers[32].y + 1.2).abs() < 0.00001);
     }
 
     #[test]
-    fn fingers_have_rounded_ends_and_an_unpinched_shaft() {
+    fn fingers_have_rounded_ends_and_unpinched_joint_cross_sections() {
         for vertical in [false, true] {
             let mesh = finger(vertical);
             let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -725,37 +760,39 @@ mod tests {
             else {
                 panic!("missing finger normals")
             };
-            let axis = if vertical { 1 } else { 2 };
             for (ring, points) in positions.as_chunks::<21>().0.iter().enumerate() {
-                let expected_radius = if ring <= 8 {
-                    (-PI * 0.5 + ring as f32 / 8.0 * PI * 0.5).cos().max(0.0)
-                } else if ring <= 24 {
-                    1.0
+                let (center, angle) = if ring <= 8 {
+                    (-0.8, -PI * 0.5 + ring as f32 / 8.0 * PI * 0.5)
+                } else if ring <= 40 {
+                    (-0.8 + (ring - 8) as f32 / 32.0 * 1.6, 0.0)
                 } else {
-                    ((ring - 24) as f32 / 8.0 * PI * 0.5).cos().max(0.0)
+                    (0.8, (ring - 40) as f32 / 8.0 * PI * 0.5)
                 };
-                for point in points {
-                    let radial = if vertical {
-                        Vec2::new(point[0], point[2])
+                let (center, normal) = finger_frame(center + 0.2 * angle.sin(), vertical);
+                for (segment, point) in points.iter().enumerate() {
+                    let point = Vec3::from_array(*point);
+                    let point = if vertical {
+                        Vec3::new(point.x, -point.z, point.y)
                     } else {
-                        Vec2::new(point[0], point[1] + 1.2 * ((point[2] + 1.0) * 0.5).powi(2))
+                        point
                     };
-                    assert!((radial.length() - expected_radius).abs() < 0.00001);
-                    if (8..=24).contains(&ring) {
+                    let offset = point - center;
+                    let radial = Vec2::new(offset.x, offset.y / normal.y);
+                    assert!((radial.length() - angle.cos().max(0.0)).abs() < 0.00001);
+                    if (8..=40).contains(&ring) {
                         assert!((radial.length() - 1.0).abs() < 0.00001);
                     }
-                    assert!(
-                        point
-                            .iter()
-                            .all(|coordinate| coordinate.is_finite() && coordinate.abs() <= 2.0)
-                    );
-                    assert!(point[axis].abs() <= 1.0);
+                    assert!(point.is_finite() && point.abs().max_element() < 6.0);
+                    let outward = Vec3::from_array(normals[ring * 21 + segment]);
+                    let outward = if vertical {
+                        Vec3::new(outward.x, -outward.z, outward.y)
+                    } else {
+                        outward
+                    };
+                    assert!(outward.dot(offset) >= -0.00001);
                 }
             }
             assert!(normals.iter().flatten().all(|normal| normal.is_finite()));
-            for (point, normal) in positions.iter().zip(normals) {
-                assert!(Vec3::from_array(*point).dot(Vec3::from_array(*normal)) >= -0.00001);
-            }
         }
     }
 

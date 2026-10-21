@@ -337,7 +337,7 @@ pub fn posed_hand_parts(side: f32, gesture: gestures::HandGesture) -> [Transform
     for (index, part) in parts.iter_mut().enumerate() {
         if (1..=4).contains(&index) {
             let pivot = wrist + Vec3::new(part.translation.x - wrist.x, -0.002, 0.085);
-            let rotation = Quat::from_rotation_x(gesture.curl * (0.9 + index as f32 * 0.06));
+            let rotation = Quat::from_rotation_x(gesture.curl * 0.35 * (0.9 + index as f32 * 0.06));
             part.translation = pivot + rotation * (part.translation - pivot);
             part.rotation = rotation * part.rotation;
         }
