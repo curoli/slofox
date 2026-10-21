@@ -38,6 +38,9 @@ pub struct Host {
 }
 
 #[derive(Component)]
+struct Ear;
+
+#[derive(Component)]
 pub struct AnimatedPart {
     pub host: usize,
     pub kind: PartKind,
@@ -291,17 +294,21 @@ fn animated(commands: &mut Commands, entity: Entity, host: usize, kind: PartKind
 fn mouth_geometry(index: usize) -> [Transform; 4] {
     let portrait = portrait::Portrait::for_host(index);
     let mouth_depth = portrait::face_front(index, 0.0, portrait.mouth_y);
-    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, mouth_depth + 0.002)
-        .with_scale(Vec3::new(portrait.mouth_width, 0.0005, 0.003));
-    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, mouth_depth + 0.009)
-        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.007));
-    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, mouth_depth + 0.011)
-        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.008));
-    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, mouth_depth + 0.007)
+    let rim_depth = mouth_depth + 0.002;
+    let mouth_rest = Transform::from_xyz(0.0, portrait.mouth_y, rim_depth).with_scale(Vec3::new(
+        portrait.mouth_width,
+        0.0005,
+        0.0008,
+    ));
+    let upper_rest = Transform::from_xyz(0.0, portrait.mouth_y + 0.004, rim_depth + 0.0015)
+        .with_scale(Vec3::new(portrait.mouth_width + 0.002, 0.006, 0.004));
+    let lip_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.004, rim_depth + 0.0015)
+        .with_scale(Vec3::new(portrait.mouth_width - 0.001, 0.007, 0.004));
+    let teeth_rest = Transform::from_xyz(0.0, portrait.mouth_y - 0.001, rim_depth + 0.001)
         .with_scale(Vec3::new(
             portrait.mouth_width * if index == 0 { 0.75 } else { 0.73 },
             if index == 0 { 0.010 } else { 0.004 },
-            0.0015,
+            0.0002,
         ));
     [mouth_rest, upper_rest, lip_rest, teeth_rest]
 }
@@ -357,14 +364,33 @@ fn host(
         Transform::default(),
     );
     for side in [-1.0, 1.0] {
-        ellipsoid(
+        let ear = ellipsoid(
             commands,
             geometry,
             head,
             &palette.skin,
-            Vec3::new(side * 0.18, 0.24, -0.01),
-            Vec3::new(0.027, 0.049, 0.02),
+            if index == 0 {
+                Vec3::new(side * 0.219, 0.265, 0.015)
+            } else {
+                Vec3::new(side * 0.18, 0.24, -0.01)
+            },
+            if index == 0 {
+                Vec3::new(0.033, 0.058, 0.033)
+            } else {
+                Vec3::new(0.027, 0.049, 0.02)
+            },
         );
+        commands.entity(ear).insert(Ear);
+        if index == 0 {
+            ellipsoid(
+                commands,
+                geometry,
+                head,
+                &palette.crease,
+                Vec3::new(side * 0.234, 0.267, 0.039),
+                Vec3::new(0.011, 0.034, 0.007),
+            );
+        }
         let eye_rest = Transform::from_xyz(
             side * portrait.eye_spacing,
             portrait.eye_y,
@@ -864,6 +890,82 @@ mod tests {
     use super::*;
 
     #[test]
+    fn heads_have_midpoint_rear_depths_and_partially_covered_browser_ears() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<slofox::signs::StudioSigns>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let mut ear_bounds = [[f32::INFINITY, f32::NEG_INFINITY]; 2];
+        let mut ear_depths = [0.0; 2];
+        let mut ear_count = [0; 2];
+        for (transform, parent) in world
+            .query_filtered::<(&Transform, &ChildOf), With<Ear>>()
+            .iter(world)
+        {
+            let head = world.get::<AnimatedPart>(parent.parent()).unwrap();
+            assert!(matches!(head.kind, PartKind::Head));
+            ear_count[head.host] += 1;
+            ear_depths[head.host] = transform.translation.z;
+            ear_bounds[head.host][0] =
+                ear_bounds[head.host][0].min(transform.translation.x - transform.scale.x);
+            ear_bounds[head.host][1] =
+                ear_bounds[head.host][1].max(transform.translation.x + transform.scale.x);
+            if head.host == 0 {
+                let skin = sculpt::head(0).profile(transform.translation.y).x;
+                assert!(transform.translation.x.abs() - transform.scale.x < skin);
+                assert!(transform.translation.x.abs() + transform.scale.x > skin + 0.04);
+                assert!((transform.translation.y - 0.265).abs() < 0.00001);
+            }
+        }
+        assert_eq!(ear_count, [2, 2]);
+        for (index, bounds) in ear_bounds.iter().enumerate() {
+            let mesh = portrait::face(index);
+            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing head positions")
+            };
+            let mut minimum = Vec3::splat(f32::INFINITY);
+            for position in positions {
+                minimum = minimum.min(Vec3::from_array(*position));
+            }
+            let scale = host_scale(index);
+            let rear_distance = (ear_depths[index] - minimum.z) * scale.z;
+            let midpoint_depth = if index == 0 { 0.2268 } else { 0.25925 };
+            let expected_distance = (ear_depths[index] + midpoint_depth) * scale.z;
+            assert!(
+                (rear_distance - expected_distance).abs() < 0.001,
+                "host {index}: rear {rear_distance}, expected {expected_distance}"
+            );
+            if index == 0 {
+                let hair = portrait::hair_cap(index);
+                let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                    hair.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing hair positions")
+                };
+                let hair_edge = positions
+                    .iter()
+                    .filter(|point| {
+                        (0.23..0.30).contains(&point[1]) && (-0.01..0.10).contains(&point[2])
+                    })
+                    .map(|point| point[0])
+                    .fold(0.0_f32, f32::max);
+                assert!(hair_edge > 0.224);
+                assert!(hair_edge < bounds[1] - 0.010);
+                assert!((ear_depths[index] - 0.015).abs() < 0.00001);
+            } else {
+                assert!((ear_depths[index] + 0.01).abs() < 0.00001);
+            }
+        }
+    }
+
+    #[test]
     fn hands_have_connected_mirrored_thumbs_outside_the_palm() {
         for side in [-1.0, 1.0] {
             let parts = hand_parts(side);
@@ -1228,6 +1330,42 @@ mod tests {
         let corrected = arm.translation;
         bounds.keep_above_desk(&host, &mut arm);
         assert!((corrected - arm.translation).length() < 0.00001);
+    }
+
+    #[test]
+    fn lips_overlap_the_mouth_rim_in_depth_instead_of_floating_in_front() {
+        use bevy::mesh::VertexAttributeValues;
+
+        for index in 0..2 {
+            let [mouth, upper, lower, _] = mouth_geometry(index);
+            for (upper_lip, rest) in [(true, upper), (false, lower)] {
+                let mesh = portrait::lip(index, upper_lip);
+                let Some(VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("missing lip positions")
+                };
+                for round_step in 0..=10 {
+                    let round = round_step as f32 / 10.0;
+                    let rim_depth = mouth.translation.z + round * 0.008;
+                    let mut pose = rest;
+                    pose.translation.z += round * 0.008;
+                    let offset = pose.translation.z - rim_depth;
+                    assert!((0.0..0.002).contains(&offset));
+                    assert!(pose.translation.z - pose.scale.z < rim_depth);
+                    assert!(pose.translation.z + pose.scale.z - rim_depth < 0.006);
+                    let mut embedded_vertices = 0;
+                    for position in positions {
+                        if position[0].abs() < 0.5 && position[2] < -0.75 {
+                            let point = pose.transform_point(Vec3::from_array(*position));
+                            assert!(point.z < rim_depth);
+                            embedded_vertices += 1;
+                        }
+                    }
+                    assert!(embedded_vertices > 10);
+                }
+            }
+        }
     }
 
     #[test]
