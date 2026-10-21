@@ -163,7 +163,7 @@ pub fn finger(vertical: bool) -> Mesh {
             } else {
                 [
                     horizontal,
-                    depth - 0.8 * ((length + 1.0) * 0.5).powi(2),
+                    depth - 1.2 * ((length + 1.0) * 0.5).powi(2),
                     length,
                 ]
             });
@@ -706,9 +706,9 @@ mod tests {
             let before = centers[ring].y - centers[ring - 1].y;
             let after = centers[ring + 1].y - centers[ring].y;
             assert!(after < before && after < 0.0);
-            assert!((after - before).abs() < 0.005);
+            assert!((after - before).abs() < 0.007);
         }
-        assert!((centers[32].y + 0.8).abs() < 0.00001);
+        assert!((centers[32].y + 1.2).abs() < 0.00001);
     }
 
     #[test]
@@ -738,7 +738,7 @@ mod tests {
                     let radial = if vertical {
                         Vec2::new(point[0], point[2])
                     } else {
-                        Vec2::new(point[0], point[1] + 0.8 * ((point[2] + 1.0) * 0.5).powi(2))
+                        Vec2::new(point[0], point[1] + 1.2 * ((point[2] + 1.0) * 0.5).powi(2))
                     };
                     assert!((radial.length() - expected_radius).abs() < 0.00001);
                     if (8..=24).contains(&ring) {
