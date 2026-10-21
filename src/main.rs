@@ -331,9 +331,28 @@ fn animate_parts(
     hosts: Query<&Transform, With<Host>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut attention: Local<[studio::HeadAttention; 2]>,
+    mut gestures: Local<[studio::gestures::GestureState; 2]>,
     mut parts: AnimatedPartsQuery<'_, '_>,
 ) {
     let elapsed = time.elapsed_secs();
+    let engagement: [f32; 2] = std::array::from_fn(|host| {
+        gestures[host].update(time.delta_secs(), session.poses[host].jaw_open)
+    });
+    let hand_poses: [[studio::gestures::HandGesture; 2]; 2] = std::array::from_fn(|host| {
+        std::array::from_fn(|hand| {
+            studio::gestures::sample(
+                elapsed,
+                host,
+                if hand == 0 { -1.0 } else { 1.0 },
+                engagement[host],
+            )
+        })
+    });
+    let hands: [[[Transform; 7]; 2]; 2] = std::array::from_fn(|host| {
+        std::array::from_fn(|hand| {
+            studio::posed_hand_parts(if hand == 0 { -1.0 } else { 1.0 }, hand_poses[host][hand])
+        })
+    });
     for (part, mut transform, bounds, parent, mut visibility, upper_contour, mesh) in &mut parts {
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
@@ -355,12 +374,20 @@ fn animate_parts(
                 );
             }
             PartKind::Arm(side) => {
-                transform.rotation = studio::arm_rotation(phase, side, pose.jaw_open);
+                let gesture = hand_poses[part.host][usize::from(side > 0.0)];
+                transform.rotation = gesture.arm_rotation;
                 if let Some(bounds) = bounds
                     && let Ok(host) = hosts.get(parent.parent())
                 {
-                    bounds.keep_above_desk(host, &mut transform);
+                    bounds.keep_above_desk_with_hand(
+                        host,
+                        &mut transform,
+                        &hands[part.host][usize::from(side > 0.0)],
+                    );
                 }
+            }
+            PartKind::Hand(side, finger) => {
+                *transform = hands[part.host][usize::from(side > 0.0)][finger];
             }
             PartKind::Eye => {
                 let blink_phase = phase.rem_euclid(4.7);

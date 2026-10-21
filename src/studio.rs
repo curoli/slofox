@@ -11,6 +11,7 @@ mod attention;
 mod body;
 mod decor;
 mod desk;
+pub mod gestures;
 mod portrait;
 mod sculpt;
 
@@ -81,6 +82,7 @@ impl UpperLipContour {
 pub enum PartKind {
     Head,
     Arm(f32),
+    Hand(f32, usize),
     Eye,
     Mouth,
     UpperLip,
@@ -96,14 +98,20 @@ const ARM_CLEARANCE: f32 = 0.005;
 
 #[derive(Component)]
 pub struct ArmBounds {
+    #[cfg(test)]
     parts: [Transform; 7],
     vertices: Vec<Vec3>,
 }
 
 impl ArmBounds {
+    #[cfg(test)]
     fn lowest_y(&self, host: &Transform, arm: &Transform) -> f32 {
+        self.posed_lowest_y(host, arm, &self.parts)
+    }
+
+    fn posed_lowest_y(&self, host: &Transform, arm: &Transform, parts: &[Transform; 7]) -> f32 {
         let parent = host.to_matrix() * arm.to_matrix();
-        self.parts
+        parts
             .iter()
             .map(|part| {
                 let matrix = parent * part.to_matrix();
@@ -118,8 +126,19 @@ impl ArmBounds {
             .fold(f32::INFINITY, f32::min)
     }
 
-    pub fn keep_above_desk(&self, host: &Transform, arm: &mut Transform) {
-        let correction = (DESK_SURFACE_Y + ARM_CLEARANCE - self.lowest_y(host, arm)).max(0.0);
+    #[cfg(test)]
+    fn keep_above_desk(&self, host: &Transform, arm: &mut Transform) {
+        self.keep_above_desk_with_hand(host, arm, &self.parts);
+    }
+
+    pub fn keep_above_desk_with_hand(
+        &self,
+        host: &Transform,
+        arm: &mut Transform,
+        parts: &[Transform; 7],
+    ) {
+        let correction =
+            (DESK_SURFACE_Y + ARM_CLEARANCE - self.posed_lowest_y(host, arm, parts)).max(0.0);
         arm.translation += host
             .to_matrix()
             .inverse()
@@ -162,16 +181,6 @@ fn host_rest(index: usize) -> Transform {
     .with_scale(host_scale(index))
 }
 
-pub fn arm_rotation(phase: f32, side: f32, speech: f32) -> Quat {
-    let gesture = speech * (0.5 + 0.5 * (phase * 1.8 + side).sin());
-    Quat::from_euler(
-        EulerRot::XYZ,
-        -0.04 - gesture * 0.22,
-        side * gesture * 0.10,
-        side * (0.02 + gesture * 0.10),
-    )
-}
-
 fn hand_parts(side: f32) -> [Transform; 7] {
     let wrist = body::wrist(side);
     std::array::from_fn(|index| {
@@ -196,10 +205,27 @@ fn hand_parts(side: f32) -> [Transform; 7] {
     })
 }
 
+pub fn posed_hand_parts(side: f32, gesture: gestures::HandGesture) -> [Transform; 7] {
+    let wrist = body::wrist(side);
+    let mut parts = hand_parts(side);
+    for (index, part) in parts.iter_mut().enumerate() {
+        if (1..=4).contains(&index) {
+            let pivot = wrist + Vec3::new(part.translation.x - wrist.x, -0.002, 0.102);
+            let rotation = Quat::from_rotation_x(gesture.curl * (0.9 + index as f32 * 0.06));
+            part.translation = pivot + rotation * (part.translation - pivot);
+            part.rotation = rotation * part.rotation;
+        }
+        part.translation = wrist + gesture.wrist_rotation * (part.translation - wrist);
+        part.rotation = gesture.wrist_rotation * part.rotation;
+    }
+    parts
+}
+
 fn arm_bounds(index: usize, side: f32) -> ArmBounds {
     let surface = body::surface(index);
     let joint = if side < 0.0 { 1 } else { 2 };
     ArmBounds {
+        #[cfg(test)]
         parts: hand_parts(side),
         vertices: surface
             .positions
@@ -618,14 +644,15 @@ fn host(
         let arm = commands.spawn((arm_rest, Visibility::default())).id();
         commands.entity(root).add_child(arm);
         animated(commands, arm, index, PartKind::Arm(side), arm_rest);
-        for transform in hand_parts(side) {
-            object(
+        for (part, transform) in hand_parts(side).into_iter().enumerate() {
+            let hand = object(
                 commands,
                 Some(arm),
                 &geometry.sphere,
                 &palette.skin,
                 transform,
             );
+            animated(commands, hand, index, PartKind::Hand(side, part), transform);
         }
         commands.entity(arm).insert(arm_bounds(index, side));
         joints.push(arm);
@@ -1130,11 +1157,15 @@ mod tests {
                             return root;
                         }
                         let side = if joint == 1 { -1.0 } else { 1.0 };
-                        let mut arm =
-                            Transform::from_translation(body::shoulder(side)).with_rotation(
-                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                        let mut arm = Transform::from_translation(body::shoulder(side))
+                            .with_rotation(
+                                gestures::sample(elapsed, index, side, speech).arm_rotation,
                             );
-                        arm_bounds[joint - 1].keep_above_desk(&host, &mut arm);
+                        arm_bounds[joint - 1].keep_above_desk_with_hand(
+                            &host,
+                            &mut arm,
+                            &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
+                        );
                         root * arm.to_matrix()
                     });
                     for (entity, matrix) in skinned_mesh.joints.iter().zip(joints) {
@@ -1222,12 +1253,18 @@ mod tests {
                         );
                     }
                     for (joint, side) in [(0, -1.0), (1, 1.0)] {
-                        let mut arm =
-                            Transform::from_translation(body::shoulder(side)).with_rotation(
-                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                        let mut arm = Transform::from_translation(body::shoulder(side))
+                            .with_rotation(
+                                gestures::sample(elapsed, index, side, speech).arm_rotation,
                             );
-                        bounds[joint].keep_above_desk(&host, &mut arm);
-                        for hand in hand_parts(side) {
+                        bounds[joint].keep_above_desk_with_hand(
+                            &host,
+                            &mut arm,
+                            &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
+                        );
+                        for hand in
+                            posed_hand_parts(side, gestures::sample(elapsed, index, side, speech))
+                        {
                             let matrix = host.to_matrix() * arm.to_matrix() * hand.to_matrix();
                             let depth_extent =
                                 Vec3::new(matrix.x_axis.z, matrix.y_axis.z, matrix.z_axis.z)
@@ -1238,6 +1275,112 @@ mod tests {
                             );
                         }
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn posed_hands_clear_the_desk_and_rest_on_it_across_the_gesture_repertoire() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let bounds = arm_bounds(index, side);
+                for frame in 0..480 {
+                    let elapsed = frame as f32 * 0.5;
+                    for engagement in [0.0, 0.35, 1.0] {
+                        let gesture = gestures::sample(elapsed, index, side, engagement);
+                        let parts = posed_hand_parts(side, gesture);
+                        let (rotation, height) = host_motion(elapsed, index, engagement);
+                        let mut host = host_rest(index).with_rotation(rotation);
+                        host.translation.y = height;
+                        let mut arm = Transform::from_translation(body::shoulder(side))
+                            .with_rotation(gesture.arm_rotation);
+                        let original = arm.translation;
+                        bounds.keep_above_desk_with_hand(&host, &mut arm, &parts);
+                        assert!(
+                            bounds.posed_lowest_y(&host, &arm, &parts)
+                                >= DESK_SURFACE_Y + ARM_CLEARANCE - 0.00001
+                        );
+                        assert!(
+                            (arm.translation - original).length() < 0.06,
+                            "correction {}: host {index}, side {side}, time {elapsed}, engagement {engagement}",
+                            (arm.translation - original).length()
+                        );
+                        let parent = host.to_matrix() * arm.to_matrix();
+                        let lowest_hand = parts
+                            .iter()
+                            .map(|part| {
+                                let matrix = parent * part.to_matrix();
+                                matrix.w_axis.y
+                                    - Vec3::new(matrix.x_axis.y, matrix.y_axis.y, matrix.z_axis.y)
+                                        .length()
+                            })
+                            .fold(f32::INFINITY, f32::min);
+                        let idle = gestures::sample(elapsed, index, side, 0.0);
+                        if gesture.arm_rotation.angle_between(idle.arm_rotation) < 0.001 {
+                            assert!(
+                                lowest_hand < DESK_SURFACE_Y + 0.025,
+                                "resting hand floats: host {index}, side {side}, time {elapsed}, gap {}",
+                                lowest_hand - DESK_SURFACE_Y
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn constrained_hand_motion_stays_smooth_through_mode_and_speech_changes() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let bounds = arm_bounds(index, side);
+                let mut state = gestures::GestureState::default();
+                let mut previous: Option<Vec3> = None;
+                for frame in 0..3600 {
+                    let elapsed = frame as f32 / 30.0;
+                    let jaw = if ((elapsed / 7.0) as usize).is_multiple_of(2) {
+                        0.8
+                    } else {
+                        0.0
+                    };
+                    let engagement = state.update(1.0 / 30.0, jaw);
+                    let gesture = gestures::sample(elapsed, index, side, engagement);
+                    let parts = posed_hand_parts(side, gesture);
+                    let (rotation, height) = host_motion(elapsed, index, jaw);
+                    let mut host = host_rest(index).with_rotation(rotation);
+                    host.translation.y = height;
+                    let mut arm = Transform::from_translation(body::shoulder(side))
+                        .with_rotation(gesture.arm_rotation);
+                    bounds.keep_above_desk_with_hand(&host, &mut arm, &parts);
+                    let palm = host.transform_point(arm.transform_point(parts[0].translation));
+                    if let Some(previous) = previous {
+                        assert!(
+                            palm.distance(previous) < 0.025,
+                            "hand jumped: host {index}, side {side}, time {elapsed}"
+                        );
+                    }
+                    previous = Some(palm);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn curled_hands_keep_the_wrist_and_thumb_attached() {
+        for side in [-1.0, 1.0] {
+            for frame in 0..120 {
+                let gesture = gestures::sample(frame as f32 * 0.5, 0, side, 0.7);
+                let parts = posed_hand_parts(side, gesture);
+                let palm = parts[0];
+                let wrist = body::wrist(side);
+                assert!(palm.to_matrix().inverse().transform_point3(wrist).length() < 1.0);
+                let base_end = parts[5].transform_point(Vec3::Y);
+                let tip_start = parts[6].transform_point(-Vec3::Y);
+                assert!(base_end.distance(tip_start) < 0.01);
+                for finger in &parts[1..=4] {
+                    let root = finger.transform_point(-Vec3::Z);
+                    assert!(palm.to_matrix().inverse().transform_point3(root).length() < 1.0);
                 }
             }
         }
@@ -1256,7 +1399,7 @@ mod tests {
                         let mut host = host_rest(index).with_rotation(rotation);
                         host.translation.y = height;
                         let mut arm = Transform::from_xyz(side * 0.29, 0.55, 0.0).with_rotation(
-                            arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                            gestures::sample(elapsed, index, side, speech).arm_rotation,
                         );
                         let original = arm.translation;
                         bounds.keep_above_desk(&host, &mut arm);
@@ -1289,11 +1432,15 @@ mod tests {
                     host.translation.y = height;
                     let matrices: [Mat4; 2] = std::array::from_fn(|joint| {
                         let side = if joint == 0 { -1.0 } else { 1.0 };
-                        let mut arm =
-                            Transform::from_translation(body::shoulder(side)).with_rotation(
-                                arm_rotation(elapsed + index as f32 * 1.83, side, speech),
+                        let mut arm = Transform::from_translation(body::shoulder(side))
+                            .with_rotation(
+                                gestures::sample(elapsed, index, side, speech).arm_rotation,
                             );
-                        bounds[joint].keep_above_desk(&host, &mut arm);
+                        bounds[joint].keep_above_desk_with_hand(
+                            &host,
+                            &mut arm,
+                            &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
+                        );
                         host.to_matrix()
                             * arm.to_matrix()
                             * Mat4::from_translation(-body::shoulder(side))
@@ -1520,7 +1667,7 @@ mod tests {
             for side in [-1.0, 1.0] {
                 let bounds = arm_bounds(index, side);
                 let mut arm = Transform::from_translation(body::shoulder(side))
-                    .with_rotation(arm_rotation(0.0, side, 0.0));
+                    .with_rotation(gestures::sample(0.0, index, side, 0.0).arm_rotation);
                 bounds.keep_above_desk(&rest, &mut arm);
                 let shoulder = rest.transform_point(arm.translation);
                 let wrist = rest.transform_point(arm.transform_point(body::wrist(side)));

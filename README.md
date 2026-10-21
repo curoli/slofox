@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with lips attached to the mouth opening](docs/studio-preview-2026-10-20-attached-lips.png)
+![Studio with calm, varied hand gestures and asymmetric resting hands](docs/studio-preview-2026-10-21-calm-hand-gestures.png)
 
 ## Prototype
 
@@ -61,14 +61,22 @@ OBS records the app window and the two audio channels.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
-- Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
+- Blinking, breathing, head turns, leaning and calm speech-dependent hand gestures.
+  Host 1 is left-handed and host 2 right-handed. A slow repertoire alternates
+  between asymmetric rests, dominant-hand circles with the other hand resting,
+  and approximately symmetric two-handed gestures. Palms can face the speaker,
+  upward or toward each other; relaxed fingers curl slightly, and resting hands
+  can lie flat or rest on their side with the thumb up.
+  Three-second eased transitions and a smoothed speech envelope keep the hands
+  from snapping or pumping with individual syllables. During silence, small
+  occasional shifts vary their tabletop positions instead of mirroring both arms.
   Both hosts occasionally glance toward each other, with stronger, longer turns
   while listening to the other voice. Smooth transitions, short speech-gap
   tolerance and periodic forward-facing breaks avoid abrupt turns or staring.
   Their glance schedules differ, and their existing nods and head tilts remain.
   Arms, hands and fingers stay above the desk surface during these movements
   using a lightweight geometric constraint over arm-surface vertices and hand
-  bounds, without a physics engine.
+  bounds, including the animated wrist turns and finger curls, without a physics engine.
   Both hosts sit far enough back for their scaled torso and clothing to stay
   behind the desk edge during leaning and breathing, while their hands still
   reach the tabletop.
@@ -121,7 +129,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with lips attached to the mouth opening](docs/portrait-preview-2026-10-20-attached-lips.png)
+![Portrait view with dominant-hand gestures and relaxed wrist poses](docs/portrait-preview-2026-10-21-calm-hand-gestures.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 
@@ -434,7 +442,7 @@ analysis and the vowel-like mouth mapping without additional dependencies.
 `src/main.rs` connects analysis to animation, cameras and diagnostics.
 
 Future steps include rigged glTF models with mouth blend shapes, more accurate
-phoneme-derived visemes, more varied gestures, GUI device selection and native audio backends
+phoneme-derived visemes, articulated elbow rigs, GUI device selection and native audio backends
 for other operating systems.
 
 Reference documentation: [Bevy](https://bevy.org/),
