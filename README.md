@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with flatter palms and longer, smoothly rounded fingers](docs/studio-preview-2026-10-21-natural-hands.png)
+![Studio with gently curved fingers and neck-axis shoulder lifts](docs/studio-preview-2026-10-21-curved-fingers-clavicles.png)
 
 ## Prototype
 
@@ -39,8 +39,11 @@ OBS records the app window and the two audio channels.
   add detail without photo textures.
   Neck, shoulders and arms share one smooth, connected skin surface rather
   than intersecting ellipsoids, with tapered forearms and a broader shoulder
-  profile for host 2. Three-joint GPU skinning blends shoulder gestures into
+  profile for host 2. Five-joint GPU skinning blends shoulder gestures into
   the torso without opening gaps; the surface is generated only at startup.
+  Shoulder lifts rotate about the base of the neck and carry the whole upper
+  shoulder edge upward, more strongly outside than inside. Smooth clavicle
+  weights preserve the neck and chest shape; clothing follows the same rig.
   Higher armpits and continuously tapered upper arms avoid a low shoulder web
   and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
   Analytic convex shoulder envelopes create a continuously descending outline
@@ -72,6 +75,9 @@ OBS records the app window and the two audio channels.
   occasional shifts vary their tabletop positions instead of mirroring both arms.
   Flatter palms and approximately palm-length fingers with continuous rounded
   shafts avoid pinched joints; the middle fingers are slightly longer than the others.
+  Finger shafts themselves curve gently rather than merely tilting at their base.
+  The thumb follows one continuous tapered curve, with matching positions and
+  normals across its joint. Hand bounds include these curved surfaces.
   Both hosts occasionally glance toward each other, with stronger, longer turns
   while listening to the other voice. Smooth transitions, short speech-gap
   tolerance and periodic forward-facing breaks avoid abrupt turns or staring.
@@ -131,7 +137,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with natural hand proportions and faster eased gestures](docs/portrait-preview-2026-10-21-natural-hands.png)
+![Portrait view with smoothly joined thumbs and natural shoulder motion](docs/portrait-preview-2026-10-21-curved-fingers-clavicles.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 

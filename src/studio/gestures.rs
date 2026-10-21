@@ -9,14 +9,24 @@ pub struct HandGesture {
 
 #[derive(Default)]
 pub struct GestureState {
+    drive: f32,
     engagement: f32,
 }
 
 impl GestureState {
     pub fn update(&mut self, delta: f32, jaw: f32) -> f32 {
         let target = ((jaw - 0.025) / 0.10).clamp(0.0, 1.0);
-        let response = if target > self.engagement { 0.9 } else { 1.5 };
-        self.engagement += (target - self.engagement) * (1.0 - (-delta.max(0.0) / response).exp());
+        let rising = target > self.engagement;
+        let drive_response = if rising { 0.20 } else { 0.35 };
+        let response = if rising { 0.9 } else { 1.5 };
+        let drive_decay = (-delta.max(0.0) / drive_response).exp();
+        let decay = (-delta.max(0.0) / response).exp();
+        self.engagement = (target
+            + (self.engagement - target) * decay
+            + (self.drive - target) * drive_response / (drive_response - response)
+                * (drive_decay - decay))
+            .clamp(0.0, 1.0);
+        self.drive = target + (self.drive - target) * drive_decay;
         self.engagement
     }
 }

@@ -1,4 +1,5 @@
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::sync::OnceLock;
 
 use bevy::{
     camera::visibility::DynamicSkinnedMeshBounds,
@@ -42,6 +43,9 @@ pub struct Host {
 struct Ear;
 
 #[derive(Component)]
+struct BodySkin;
+
+#[derive(Component)]
 pub struct AnimatedPart {
     pub host: usize,
     pub kind: PartKind,
@@ -82,6 +86,7 @@ impl UpperLipContour {
 pub enum PartKind {
     Head,
     Arm(f32),
+    Clavicle(f32),
     Hand(f32, usize),
     Eye,
     Mouth,
@@ -98,6 +103,7 @@ const ARM_CLEARANCE: f32 = 0.005;
 
 #[derive(Component)]
 pub struct ArmBounds {
+    side: f32,
     #[cfg(test)]
     parts: [Transform; 7],
     vertices: Vec<Vec3>,
@@ -116,8 +122,7 @@ impl ArmBounds {
             .enumerate()
             .map(|(index, part)| {
                 let matrix = parent * part.to_matrix();
-                let extent = hand_extent(matrix, index, Vec3::Y);
-                matrix.w_axis.y - extent
+                hand_minimum(matrix, index, Vec3::Y, self.side)
             })
             .chain(
                 self.vertices
@@ -137,14 +142,33 @@ impl ArmBounds {
         host: &Transform,
         arm: &mut Transform,
         parts: &[Transform; 7],
-    ) {
-        let correction =
-            (DESK_SURFACE_Y + ARM_CLEARANCE - self.posed_lowest_y(host, arm, parts)).max(0.0);
-        arm.translation += host
-            .to_matrix()
-            .inverse()
-            .transform_vector3(Vec3::Y * correction);
+    ) -> Quat {
+        if self.posed_lowest_y(host, arm, parts) >= DESK_SURFACE_Y + ARM_CLEARANCE {
+            return Quat::IDENTITY;
+        }
+        let original = *arm;
+        let mut lower = 0.0;
+        let mut upper = 0.50;
+        for _ in 0..16 {
+            let angle = (lower + upper) * 0.5;
+            let candidate = lift_arm(original, self.side, angle);
+            if self.posed_lowest_y(host, &candidate, parts) < DESK_SURFACE_Y + ARM_CLEARANCE {
+                lower = angle;
+            } else {
+                upper = angle;
+            }
+        }
+        *arm = lift_arm(original, self.side, upper);
+        Quat::from_rotation_z(self.side * upper)
     }
+}
+
+fn lift_arm(mut arm: Transform, side: f32, angle: f32) -> Transform {
+    let rotation = Quat::from_rotation_z(side * angle);
+    let pivot = body::clavicle_pivot();
+    arm.translation = pivot + rotation * (arm.translation - pivot);
+    arm.rotation = rotation * arm.rotation;
+    arm
 }
 
 fn host_scale(index: usize) -> Vec3 {
@@ -213,8 +237,36 @@ fn hand_parts(side: f32) -> [Transform; 7] {
     })
 }
 
-fn hand_extent(matrix: Mat4, index: usize, axis: Vec3) -> f32 {
-    let mut extent = Vec3::new(
+fn hand_vertices(side: f32, index: usize) -> &'static [Vec3] {
+    static VERTICES: OnceLock<[Vec<Vec3>; 5]> = OnceLock::new();
+    let vertices = VERTICES.get_or_init(|| {
+        std::array::from_fn(|mesh| {
+            let shape = if mesh == 0 {
+                portrait::finger(false)
+            } else {
+                let side = if mesh <= 2 { -1.0 } else { 1.0 };
+                let part = 5 + (mesh - 1) % 2;
+                let mut bind = hand_parts(side)[part];
+                bind.translation -= body::wrist(side);
+                portrait::thumb(side, part == 6, bind)
+            };
+            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                shape.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                unreachable!()
+            };
+            positions.iter().copied().map(Vec3::from_array).collect()
+        })
+    });
+    &vertices[if index <= 4 {
+        0
+    } else {
+        1 + usize::from(side > 0.0) * 2 + index - 5
+    }]
+}
+
+fn hand_extent(matrix: Mat4, index: usize, axis: Vec3, side: f32) -> f32 {
+    let extent = Vec3::new(
         matrix.x_axis.truncate().dot(axis),
         matrix.y_axis.truncate().dot(axis),
         matrix.z_axis.truncate().dot(axis),
@@ -222,11 +274,61 @@ fn hand_extent(matrix: Mat4, index: usize, axis: Vec3) -> f32 {
     if index == 0 {
         extent.length()
     } else {
-        let longitudinal = if index <= 4 { 2 } else { 1 };
-        let shaft = 0.8 * extent[longitudinal].abs();
-        extent[longitudinal] *= 0.2;
-        shaft + extent.length()
+        hand_sections(side, index)
+            .iter()
+            .map(|section| {
+                extent.dot(section[0]).abs()
+                    + Vec2::new(extent.dot(section[1]), extent.dot(section[2])).length()
+            })
+            .fold(0.0_f32, f32::max)
     }
+}
+
+fn hand_sections(side: f32, index: usize) -> &'static [[Vec3; 3]] {
+    static SECTIONS: OnceLock<[Vec<[Vec3; 3]>; 5]> = OnceLock::new();
+    let sections = SECTIONS.get_or_init(|| {
+        std::array::from_fn(|mesh| {
+            let (side, part) = if mesh == 0 {
+                (-1.0, 1)
+            } else {
+                (if mesh <= 2 { -1.0 } else { 1.0 }, 5 + (mesh - 1) % 2)
+            };
+            hand_vertices(side, part)
+                .as_chunks::<21>()
+                .0
+                .iter()
+                .map(|ring| {
+                    let center = (ring[0] + ring[10]) * 0.5;
+                    [center, ring[0] - center, ring[5] - center]
+                })
+                .collect()
+        })
+    });
+    &sections[if index <= 4 {
+        0
+    } else {
+        1 + usize::from(side > 0.0) * 2 + index - 5
+    }]
+}
+
+fn hand_minimum(matrix: Mat4, index: usize, axis: Vec3, side: f32) -> f32 {
+    let center = matrix.w_axis.truncate().dot(axis);
+    if index == 0 {
+        return center - hand_extent(matrix, index, axis, side);
+    }
+    let direction = Vec3::new(
+        matrix.x_axis.truncate().dot(axis),
+        matrix.y_axis.truncate().dot(axis),
+        matrix.z_axis.truncate().dot(axis),
+    );
+    center
+        + hand_sections(side, index)
+            .iter()
+            .map(|section| {
+                direction.dot(section[0])
+                    - Vec2::new(direction.dot(section[1]), direction.dot(section[2])).length()
+            })
+            .fold(f32::INFINITY, f32::min)
 }
 
 pub fn posed_hand_parts(side: f32, gesture: gestures::HandGesture) -> [Transform; 7] {
@@ -249,6 +351,7 @@ fn arm_bounds(index: usize, side: f32) -> ArmBounds {
     let surface = body::surface(index);
     let joint = if side < 0.0 { 1 } else { 2 };
     ArmBounds {
+        side,
         #[cfg(test)]
         parts: hand_parts(side),
         vertices: surface
@@ -375,8 +478,10 @@ fn host(
     let root = commands
         .spawn((Host { index }, host_rest(index), Visibility::default()))
         .id();
-    let garment = meshes.add(portrait::garment(index));
-    object(
+    let mut garment_mesh = portrait::garment(index);
+    body::skin_garment(index, &mut garment_mesh);
+    let garment = meshes.add(garment_mesh);
+    let garment_entity = object(
         commands,
         Some(root),
         &garment,
@@ -664,13 +769,19 @@ fn host(
     let mut joints = vec![root];
     let mut inverse_bindposes = vec![Mat4::IDENTITY];
     let finger_shape = meshes.add(portrait::finger(false));
-    let thumb_shape = meshes.add(portrait::finger(true));
     for side in [-1.0, 1.0] {
         let arm_rest = Transform::from_translation(body::shoulder(side));
         let arm = commands.spawn((arm_rest, Visibility::default())).id();
         commands.entity(root).add_child(arm);
         animated(commands, arm, index, PartKind::Arm(side), arm_rest);
         for (part, transform) in hand_parts(side).into_iter().enumerate() {
+            let thumb_shape = if part >= 5 {
+                let mut bind = transform;
+                bind.translation -= body::wrist(side);
+                Some(meshes.add(portrait::thumb(side, part == 6, bind)))
+            } else {
+                None
+            };
             let hand = object(
                 commands,
                 Some(arm),
@@ -679,7 +790,7 @@ fn host(
                 } else if part <= 4 {
                     &finger_shape
                 } else {
-                    &thumb_shape
+                    thumb_shape.as_ref().unwrap()
                 },
                 &palette.skin,
                 transform,
@@ -691,6 +802,14 @@ fn host(
         inverse_bindposes.push(Mat4::from_translation(-body::shoulder(side)));
     }
     let skin = meshes.add(body::surface(index).mesh());
+    for side in [-1.0, 1.0] {
+        let rest = Transform::from_translation(body::clavicle_pivot());
+        let joint = commands.spawn((rest, Visibility::default())).id();
+        commands.entity(root).add_child(joint);
+        animated(commands, joint, index, PartKind::Clavicle(side), rest);
+        joints.push(joint);
+        inverse_bindposes.push(Mat4::from_translation(-body::clavicle_pivot()));
+    }
     let surface = object(
         commands,
         Some(root),
@@ -698,13 +817,16 @@ fn host(
         &palette.body,
         Transform::default(),
     );
-    commands.entity(surface).insert((
-        SkinnedMesh {
-            inverse_bindposes: bindposes.add(inverse_bindposes),
-            joints,
-        },
-        DynamicSkinnedMeshBounds,
-    ));
+    let rig = SkinnedMesh {
+        inverse_bindposes: bindposes.add(inverse_bindposes),
+        joints,
+    };
+    commands
+        .entity(surface)
+        .insert((rig.clone(), DynamicSkinnedMeshBounds, BodySkin));
+    commands
+        .entity(garment_entity)
+        .insert((rig, DynamicSkinnedMeshBounds));
 }
 
 pub fn setup(
@@ -948,6 +1070,33 @@ pub fn setup(
 mod tests {
     use super::*;
 
+    fn test_rig(
+        index: usize,
+        elapsed: f32,
+        speech: f32,
+        host: &Transform,
+        bounds: &[ArmBounds; 2],
+    ) -> [Mat4; 5] {
+        let root = host.to_matrix();
+        let mut matrices = [root; 5];
+        for (hand, side) in [(0, -1.0), (1, 1.0)] {
+            let pose = gestures::sample(elapsed, index, side, speech);
+            let mut arm =
+                Transform::from_translation(body::shoulder(side)).with_rotation(pose.arm_rotation);
+            let lift = bounds[hand].keep_above_desk_with_hand(
+                host,
+                &mut arm,
+                &posed_hand_parts(side, pose),
+            );
+            matrices[hand + 1] = root * arm.to_matrix();
+            matrices[hand + 3] = root
+                * Transform::from_translation(body::clavicle_pivot())
+                    .with_rotation(lift)
+                    .to_matrix();
+        }
+        matrices
+    }
+
     #[test]
     fn heads_have_midpoint_rear_depths_and_partially_covered_browser_ears() {
         let mut app = App::new();
@@ -1025,6 +1174,97 @@ mod tests {
     }
 
     #[test]
+    fn thumb_halves_share_a_smooth_continuous_curve_and_joint_normals() {
+        use bevy::mesh::VertexAttributeValues;
+
+        for side in [-1.0, 1.0] {
+            let mut binds = [hand_parts(side)[5], hand_parts(side)[6]];
+            for bind in &mut binds {
+                bind.translation -= body::wrist(side);
+            }
+            let meshes = [
+                portrait::thumb(side, false, binds[0]),
+                portrait::thumb(side, true, binds[1]),
+            ];
+            let positions: Vec<_> = meshes
+                .iter()
+                .map(|mesh| {
+                    let Some(VertexAttributeValues::Float32x3(positions)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("thumb positions")
+                    };
+                    positions
+                })
+                .collect();
+            let normals: Vec<_> = meshes
+                .iter()
+                .map(|mesh| {
+                    let Some(VertexAttributeValues::Float32x3(normals)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+                    else {
+                        panic!("thumb normals")
+                    };
+                    normals
+                })
+                .collect();
+            for segment in 0..=20 {
+                let vertex = 20 * 21 + segment;
+                let points: [Vec3; 2] = std::array::from_fn(|half| {
+                    binds[half].transform_point(Vec3::from_array(positions[half][vertex]))
+                });
+                assert!(points[0].distance(points[1]) < 0.000001);
+                let normal: [Vec3; 2] = std::array::from_fn(|half| {
+                    binds[half]
+                        .to_matrix()
+                        .inverse()
+                        .transpose()
+                        .transform_vector3(Vec3::from_array(normals[half][vertex]))
+                        .normalize()
+                });
+                assert!(normal[0].dot(normal[1]) > 0.99999);
+            }
+        }
+    }
+
+    #[test]
+    fn skin_and_clothing_share_five_joint_rigs_with_dynamic_bounds() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<slofox::signs::StudioSigns>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let mut rigs: [Vec<Entity>; 2] = std::array::from_fn(|_| Vec::new());
+        let mut counts = [0; 2];
+        for (mesh, skin, parent) in world
+            .query_filtered::<(&Mesh3d, &SkinnedMesh, &ChildOf), With<DynamicSkinnedMeshBounds>>()
+            .iter(world)
+        {
+            let host = world.get::<Host>(parent.parent()).unwrap().index;
+            assert_eq!(skin.joints.len(), 5);
+            if rigs[host].is_empty() {
+                rigs[host] = skin.joints.clone();
+            } else {
+                assert_eq!(rigs[host], skin.joints);
+            }
+            assert!(
+                world
+                    .resource::<Assets<Mesh>>()
+                    .get(&mesh.0)
+                    .unwrap()
+                    .skinned_mesh_bounds()
+                    .is_some()
+            );
+            counts[host] += 1;
+        }
+        assert_eq!(counts, [2, 2]);
+    }
+
+    #[test]
     fn hands_have_flatter_palms_and_approximately_palm_length_fingers() {
         for side in [-1.0, 1.0] {
             let parts = hand_parts(side);
@@ -1041,13 +1281,20 @@ mod tests {
         use bevy::mesh::VertexAttributeValues;
 
         let finger = portrait::finger(false);
-        let thumb = portrait::finger(true);
         for side in [-1.0, 1.0] {
             for frame in 0..80 {
                 let gesture = gestures::sample(frame as f32 * 0.7, 0, side, 0.8);
                 let parts = posed_hand_parts(side, gesture);
                 for (index, part) in parts.iter().enumerate().skip(1) {
-                    let mesh = if index <= 4 { &finger } else { &thumb };
+                    let mut bind = hand_parts(side)[index];
+                    bind.translation -= body::wrist(side);
+                    let thumb;
+                    let mesh = if index <= 4 {
+                        &finger
+                    } else {
+                        thumb = portrait::thumb(side, index == 6, bind);
+                        &thumb
+                    };
                     let Some(VertexAttributeValues::Float32x3(positions)) =
                         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
                     else {
@@ -1056,7 +1303,7 @@ mod tests {
                     let matrix = Mat4::from_quat(gesture.arm_rotation) * part.to_matrix();
                     for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
                         let center = matrix.w_axis.truncate().dot(axis);
-                        let extent = hand_extent(matrix, index, axis);
+                        let extent = hand_extent(matrix, index, axis, side);
                         for position in positions {
                             let point = matrix.transform_point3(Vec3::from_array(*position));
                             assert!((point.dot(axis) - center).abs() <= extent + 0.000001);
@@ -1150,7 +1397,7 @@ mod tests {
             &MeshMaterial3d<StandardMaterial>,
             &ChildOf,
             &SkinnedMesh,
-        ), With<DynamicSkinnedMeshBounds>>();
+        ), With<BodySkin>>();
         let mut count = 0;
         for (mesh, material, parent, _) in query.iter(world) {
             let host = world.get::<Host>(parent.parent()).unwrap();
@@ -1196,7 +1443,7 @@ mod tests {
             let surface = body::surface(index);
             let mesh = surface.mesh();
             let generated = mesh.skinned_mesh_bounds().expect("missing skin bounds");
-            assert_eq!(generated.aabbs.len(), 3);
+            assert_eq!(generated.aabbs.len(), 5);
             let (static_min, static_max) = surface.positions.iter().fold(
                 (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
                 |(minimum, maximum), point| {
@@ -1205,7 +1452,7 @@ mod tests {
                 },
             );
             let mut world = World::new();
-            let joints: Vec<_> = (0..3)
+            let joints: Vec<_> = (0..5)
                 .map(|_| world.spawn(GlobalTransform::IDENTITY).id())
                 .collect();
             let skinned_mesh = SkinnedMesh {
@@ -1216,6 +1463,8 @@ mod tests {
                 Mat4::IDENTITY,
                 Mat4::from_translation(-body::shoulder(-1.0)),
                 Mat4::from_translation(-body::shoulder(1.0)),
+                Mat4::from_translation(-body::clavicle_pivot()),
+                Mat4::from_translation(-body::clavicle_pivot()),
             ]);
             let mut query_state = SystemState::<Query<&GlobalTransform>>::new(&mut world);
             let arm_bounds = [arm_bounds(index, -1.0), arm_bounds(index, 1.0)];
@@ -1227,22 +1476,7 @@ mod tests {
                     let mut host = host_rest(index).with_rotation(rotation);
                     host.translation.y = height;
                     let root = host.to_matrix();
-                    let joints: [Mat4; 3] = std::array::from_fn(|joint| {
-                        if joint == 0 {
-                            return root;
-                        }
-                        let side = if joint == 1 { -1.0 } else { 1.0 };
-                        let mut arm = Transform::from_translation(body::shoulder(side))
-                            .with_rotation(
-                                gestures::sample(elapsed, index, side, speech).arm_rotation,
-                            );
-                        arm_bounds[joint - 1].keep_above_desk_with_hand(
-                            &host,
-                            &mut arm,
-                            &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
-                        );
-                        root * arm.to_matrix()
-                    });
+                    let joints = test_rig(index, elapsed, speech, &host, &arm_bounds);
                     for (entity, matrix) in skinned_mesh.joints.iter().zip(joints) {
                         world
                             .entity_mut(*entity)
@@ -1256,15 +1490,19 @@ mod tests {
                         Some(&GlobalTransform::from(root)),
                     )
                     .unwrap();
-                    let matrices: [Mat4; 3] = std::array::from_fn(|joint| {
+                    let matrices: [Mat4; 5] = std::array::from_fn(|joint| {
                         root.inverse() * joints[joint] * inverse_bindposes[joint]
                     });
                     let minimum = Vec3::from(bounds.min) - Vec3::splat(0.00001);
                     let maximum = Vec3::from(bounds.max) + Vec3::splat(0.00001);
                     for (point, weights) in surface.positions.iter().zip(&surface.weights) {
                         let point = Vec3::from_array(*point);
-                        let skinned: Vec3 = (0..3)
-                            .map(|joint| matrices[joint].transform_point3(point) * weights[joint])
+                        let indices = body::joint_indices(point);
+                        let skinned: Vec3 = (0..4)
+                            .map(|slot| {
+                                matrices[indices[slot] as usize].transform_point3(point)
+                                    * weights[slot]
+                            })
                             .sum();
                         assert!(
                             skinned.cmpge(minimum).all() && skinned.cmple(maximum).all(),
@@ -1343,9 +1581,9 @@ mod tests {
                                 .enumerate()
                         {
                             let matrix = host.to_matrix() * arm.to_matrix() * hand.to_matrix();
-                            let depth_extent = hand_extent(matrix, part, Vec3::Z);
                             assert!(
-                                matrix.w_axis.z - depth_extent >= desk::BACK_EDGE_Z + ARM_CLEARANCE,
+                                hand_minimum(matrix, part, Vec3::Z, side)
+                                    >= desk::BACK_EDGE_Z + ARM_CLEARANCE,
                                 "host {index}: hand no longer reaches desk: time {elapsed}, speech {speech}, side {side}"
                             );
                         }
@@ -1377,7 +1615,8 @@ mod tests {
                                 >= DESK_SURFACE_Y + ARM_CLEARANCE - 0.00001
                         );
                         assert!(
-                            (arm.translation - original).length() < 0.06,
+                            (arm.translation - original).length() < 0.08
+                                && arm.translation.y - original.y < 0.07,
                             "correction {}: host {index}, side {side}, time {elapsed}, engagement {engagement}",
                             (arm.translation - original).length()
                         );
@@ -1387,7 +1626,7 @@ mod tests {
                             .enumerate()
                             .map(|(index, part)| {
                                 let matrix = parent * part.to_matrix();
-                                matrix.w_axis.y - hand_extent(matrix, index, Vec3::Y)
+                                hand_minimum(matrix, index, Vec3::Y, side)
                             })
                             .fold(f32::INFINITY, f32::min);
                         let idle = gestures::sample(elapsed, index, side, 0.0);
@@ -1431,7 +1670,8 @@ mod tests {
                     if let Some(previous) = previous {
                         assert!(
                             palm.distance(previous) < 0.025,
-                            "hand jumped: host {index}, side {side}, time {elapsed}"
+                            "hand jumped {}: host {index}, side {side}, time {elapsed}",
+                            palm.distance(previous)
                         );
                     }
                     previous = Some(palm);
@@ -1504,29 +1744,28 @@ mod tests {
                     let (rotation, height) = host_motion(elapsed, index, speech);
                     let mut host = host_rest(index).with_rotation(rotation);
                     host.translation.y = height;
-                    let matrices: [Mat4; 2] = std::array::from_fn(|joint| {
-                        let side = if joint == 0 { -1.0 } else { 1.0 };
-                        let mut arm = Transform::from_translation(body::shoulder(side))
-                            .with_rotation(
-                                gestures::sample(elapsed, index, side, speech).arm_rotation,
-                            );
-                        bounds[joint].keep_above_desk_with_hand(
-                            &host,
-                            &mut arm,
-                            &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
-                        );
-                        host.to_matrix()
-                            * arm.to_matrix()
-                            * Mat4::from_translation(-body::shoulder(side))
+                    let rig = test_rig(index, elapsed, speech, &host, &bounds);
+                    let matrices: [Mat4; 5] = std::array::from_fn(|joint| {
+                        let bind = match joint {
+                            0 => Vec3::ZERO,
+                            1 => body::shoulder(-1.0),
+                            2 => body::shoulder(1.0),
+                            _ => body::clavicle_pivot(),
+                        };
+                        rig[joint] * Mat4::from_translation(-bind)
                     });
                     for (point, weights) in surface.positions.iter().zip(&surface.weights) {
-                        if weights[1] + weights[2] == 0.0 {
+                        if weights[1] + weights[2] + weights[3] == 0.0 {
                             continue;
                         }
                         let point = Vec3::from_array(*point);
-                        let skinned = host.transform_point(point) * weights[0]
-                            + matrices[0].transform_point3(point) * weights[1]
-                            + matrices[1].transform_point3(point) * weights[2];
+                        let indices = body::joint_indices(point);
+                        let skinned: Vec3 = (0..4)
+                            .map(|slot| {
+                                matrices[indices[slot] as usize].transform_point3(point)
+                                    * weights[slot]
+                            })
+                            .sum();
                         assert!(skinned.is_finite());
                         assert!(
                             skinned.y >= DESK_SURFACE_Y + ARM_CLEARANCE - 0.00001,
@@ -1540,14 +1779,18 @@ mod tests {
 
     #[test]
     fn correction_accounts_for_rotated_nonuniform_parent_and_is_idempotent() {
-        let host = Transform::from_xyz(0.0, 0.72, 0.0)
+        let host = Transform::from_xyz(0.0, DESK_SURFACE_Y - 0.08, 0.0)
             .with_rotation(Quat::from_euler(EulerRot::XYZ, 0.15, 0.2, -0.12))
             .with_scale(Vec3::new(1.1, 0.9, 1.2));
         let bounds = arm_bounds(0, 1.0);
         let mut arm = Transform::from_xyz(0.29, 0.55, 0.0);
         assert!(bounds.lowest_y(&host, &arm) < DESK_SURFACE_Y);
         bounds.keep_above_desk(&host, &mut arm);
-        assert!((bounds.lowest_y(&host, &arm) - DESK_SURFACE_Y - ARM_CLEARANCE).abs() < 0.00001);
+        assert!(
+            (bounds.lowest_y(&host, &arm) - DESK_SURFACE_Y - ARM_CLEARANCE).abs() < 0.00001,
+            "floor gap {}",
+            bounds.lowest_y(&host, &arm) - DESK_SURFACE_Y - ARM_CLEARANCE
+        );
         let corrected = arm.translation;
         bounds.keep_above_desk(&host, &mut arm);
         assert!((corrected - arm.translation).length() < 0.00001);

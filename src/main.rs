@@ -353,7 +353,26 @@ fn animate_parts(
             studio::posed_hand_parts(if hand == 0 { -1.0 } else { 1.0 }, hand_poses[host][hand])
         })
     });
-    for (part, mut transform, bounds, parent, mut visibility, upper_contour, mesh) in &mut parts {
+    let mut clavicles = [[Quat::IDENTITY; 2]; 2];
+    for (part, mut transform, bounds, parent, _, _, _) in &mut parts {
+        if let PartKind::Arm(side) = part.kind {
+            *transform = part.rest;
+            transform.rotation = hand_poses[part.host][usize::from(side > 0.0)].arm_rotation;
+            if let Some(bounds) = bounds
+                && let Ok(host) = hosts.get(parent.parent())
+            {
+                clavicles[part.host][usize::from(side > 0.0)] = bounds.keep_above_desk_with_hand(
+                    host,
+                    &mut transform,
+                    &hands[part.host][usize::from(side > 0.0)],
+                );
+            }
+        }
+    }
+    for (part, mut transform, _, _, mut visibility, upper_contour, mesh) in &mut parts {
+        if matches!(part.kind, PartKind::Arm(_)) {
+            continue;
+        }
         let pose = session.poses[part.host];
         let phase = elapsed + part.host as f32 * 1.83;
         *transform = part.rest;
@@ -373,18 +392,9 @@ fn animate_parts(
                     0.025 * (phase * 0.64).sin(),
                 );
             }
-            PartKind::Arm(side) => {
-                let gesture = hand_poses[part.host][usize::from(side > 0.0)];
-                transform.rotation = gesture.arm_rotation;
-                if let Some(bounds) = bounds
-                    && let Ok(host) = hosts.get(parent.parent())
-                {
-                    bounds.keep_above_desk_with_hand(
-                        host,
-                        &mut transform,
-                        &hands[part.host][usize::from(side > 0.0)],
-                    );
-                }
+            PartKind::Arm(_) => {}
+            PartKind::Clavicle(side) => {
+                transform.rotation = clavicles[part.host][usize::from(side > 0.0)];
             }
             PartKind::Hand(side, finger) => {
                 *transform = hands[part.host][usize::from(side > 0.0)][finger];
