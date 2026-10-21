@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with attentive listening head turns](docs/studio-preview-2026-10-20-listening-head-turns.png)
+![Studio with three-part fingers bent at their middle and end joints](docs/studio-preview-2026-10-21-bent-finger-joints.png)
 
 ## Prototype
 
@@ -39,8 +39,11 @@ OBS records the app window and the two audio channels.
   add detail without photo textures.
   Neck, shoulders and arms share one smooth, connected skin surface rather
   than intersecting ellipsoids, with tapered forearms and a broader shoulder
-  profile for host 2. Three-joint GPU skinning blends shoulder gestures into
+  profile for host 2. Five-joint GPU skinning blends shoulder gestures into
   the torso without opening gaps; the surface is generated only at startup.
+  Shoulder lifts rotate about the base of the neck and carry the whole upper
+  shoulder edge upward, more strongly outside than inside. Smooth clavicle
+  weights preserve the neck and chest shape; clothing follows the same rig.
   Higher armpits and continuously tapered upper arms avoid a low shoulder web
   and midpoint bulges; slimmer elbow transitions avoid rounded joint knobs.
   Analytic convex shoulder envelopes create a continuously descending outline
@@ -61,14 +64,28 @@ OBS records the app window and the two audio channels.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
-- Blinking, breathing, head turns, leaning and speech-dependent arm gestures.
+- Blinking, breathing, head turns, leaning and calm speech-dependent hand gestures.
+  Host 1 is left-handed and host 2 right-handed. A slow repertoire alternates
+  between asymmetric rests, dominant-hand circles with the other hand resting,
+  and approximately symmetric two-handed gestures. Palms can face the speaker,
+  upward or toward each other; relaxed fingers curl slightly, and resting hands
+  can lie flat or rest on their side with the thumb up.
+  Two-second eased transitions and a smoothed speech envelope keep the hands
+  from snapping or pumping with individual syllables. During silence, small
+  occasional shifts vary their tabletop positions instead of mirroring both arms.
+  Flatter palms and approximately palm-length fingers with continuous rounded
+  shafts avoid pinched joints; the middle fingers are slightly longer than the others.
+  Fingers have three phalanges, with rounded bends at the middle and end joints
+  rather than merely tilting at their base. Joint transitions keep their thickness.
+  The thumb follows one continuous tapered curve, with matching positions and
+  normals across its joint. Hand bounds include these curved surfaces.
   Both hosts occasionally glance toward each other, with stronger, longer turns
   while listening to the other voice. Smooth transitions, short speech-gap
   tolerance and periodic forward-facing breaks avoid abrupt turns or staring.
   Their glance schedules differ, and their existing nods and head tilts remain.
   Arms, hands and fingers stay above the desk surface during these movements
   using a lightweight geometric constraint over arm-surface vertices and hand
-  bounds, without a physics engine.
+  bounds, including the animated wrist turns and finger curls, without a physics engine.
   Both hosts sit far enough back for their scaled torso and clothing to stay
   behind the desk edge during leaning and breathing, while their hands still
   reach the tabletop.
@@ -98,6 +115,12 @@ These are manual, reference-guided interpretations, not scans or a claim of
 exact likeness. The first head has fuller oval cheeks and a broader smile;
 the second has a longer face, higher forehead and stronger nose bridge.
 The nose is part of the closed head surface rather than a separate overlay.
+Both skulls have rounded, ear-centered profiles: measured along head depth, the
+distance from the ear centers to the back of the skull matches the distance to
+the central forehead (not the nose tip). Ear positions remain unchanged. This
+replaces the earlier minimum-depth-versus-width rule. Host 1 has a thicker,
+roughly 3 cm scalp-hair layer that partially covers the ears while leaving their
+outer portions visible. Crown highlights and ponytail follow that hair volume.
 Eyes, brows and animated lips are positioned from that same surface.
 The upper tooth row grows downward from a fixed gumline and stays between
 the shallow mouth cavity and lips, including rounded and wide mouth shapes.
@@ -115,7 +138,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with attentive listening head turns](docs/portrait-preview-2026-10-20-listening-head-turns.png)
+![Portrait view with bent finger joints and smoothly joined thumbs](docs/portrait-preview-2026-10-21-bent-finger-joints.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 
@@ -428,7 +451,7 @@ analysis and the vowel-like mouth mapping without additional dependencies.
 `src/main.rs` connects analysis to animation, cameras and diagnostics.
 
 Future steps include rigged glTF models with mouth blend shapes, more accurate
-phoneme-derived visemes, more varied gestures, GUI device selection and native audio backends
+phoneme-derived visemes, articulated elbow rigs, GUI device selection and native audio backends
 for other operating systems.
 
 Reference documentation: [Bevy](https://bevy.org/),

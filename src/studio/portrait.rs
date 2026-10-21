@@ -140,6 +140,149 @@ pub fn face(index: usize) -> Mesh {
     mesh
 }
 
+const FINGER_ASPECT: f32 = 5.0;
+
+fn finger_bend(amount: f32) -> f32 {
+    let ease = |value: f32| {
+        let value = value.clamp(0.0, 1.0);
+        value * value * (3.0 - 2.0 * value)
+    };
+    28.0_f32.to_radians() * ease((amount - 0.40) / 0.10)
+        + 18.0_f32.to_radians() * ease((amount - 0.73) / 0.08)
+}
+
+fn finger_frame(length: f32, vertical: bool) -> (Vec3, Vec3) {
+    if vertical {
+        return (Vec3::new(0.0, 0.0, length), Vec3::Y);
+    }
+    let amount = ((length + 1.0) * 0.5).clamp(0.0, 1.0);
+    let step = amount / 96.0;
+    let mut center = -Vec3::Z;
+    for sample in 0..96 {
+        let bend = finger_bend((sample as f32 + 0.5) * step);
+        center += Vec3::new(0.0, -FINGER_ASPECT * bend.sin(), bend.cos()) * (2.0 * step);
+    }
+    let bend = finger_bend(amount);
+    (
+        center,
+        Vec3::new(0.0, bend.cos(), bend.sin() / FINGER_ASPECT),
+    )
+}
+
+pub fn finger(vertical: bool) -> Mesh {
+    let segments = 20;
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for ring in 0..49 {
+        let (center, angle) = if ring <= 8 {
+            (-0.8, -PI * 0.5 + ring as f32 / 8.0 * PI * 0.5)
+        } else if ring <= 40 {
+            (-0.8 + (ring - 8) as f32 / 32.0 * 1.6, 0.0)
+        } else {
+            (0.8, (ring - 40) as f32 / 8.0 * PI * 0.5)
+        };
+        let radius = angle.cos().max(0.0);
+        let length = center + 0.2 * angle.sin();
+        let (center, normal) = finger_frame(length, vertical);
+        for segment in 0..=segments {
+            let around = segment as f32 / segments as f32 * PI * 2.0;
+            let horizontal = radius * around.sin();
+            let depth = radius * around.cos();
+            let point = center + Vec3::X * horizontal + normal * depth;
+            positions.push(if vertical {
+                [point.x, point.z, -point.y]
+            } else {
+                point.to_array()
+            });
+            if ring < 48 && segment < segments {
+                connect_ring(&mut indices, ring, segment, segments);
+            }
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        triangle.swap(1, 2);
+    }
+    indexed_surface(positions, indices)
+}
+
+pub fn thumb(side: f32, distal: bool, bind: Transform) -> Mesh {
+    let start = Vec3::new(-side * 0.035, 0.002, 0.043);
+    let control = Vec3::new(-side * 0.065, 0.001, 0.080);
+    let end = Vec3::new(-side * 0.079, -0.003, 0.108);
+    let segments = 20;
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for ring in 0..=40 {
+        let (amount, cap, extension) = if ring < 4 {
+            let angle = (4 - ring) as f32 / 4.0 * PI * 0.5;
+            (0.0, angle.cos().max(0.0), -0.015 * angle.sin())
+        } else if ring > 36 {
+            let angle = (ring - 36) as f32 / 4.0 * PI * 0.5;
+            (1.0, angle.cos().max(0.0), 0.011 * angle.sin())
+        } else {
+            ((ring - 4) as f32 / 32.0, 1.0, 0.0)
+        };
+        let tangent = ((control - start) * (1.0 - amount) + (end - control) * amount).normalize();
+        let across = tangent.cross(Vec3::Y).normalize();
+        let normal = tangent.cross(across).normalize();
+        let center = start * (1.0 - amount).powi(2)
+            + control * (2.0 * amount * (1.0 - amount))
+            + end * amount.powi(2)
+            + tangent * extension;
+        let radius = (0.015 - 0.004 * amount) * cap;
+        for segment in 0..=segments {
+            let angle = segment as f32 / segments as f32 * PI * 2.0;
+            positions
+                .push((center + radius * (across * angle.sin() + normal * angle.cos())).to_array());
+            if ring < 40 && segment < segments {
+                connect_ring(&mut indices, ring, segment, segments);
+            }
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        triangle.swap(1, 2);
+    }
+    let mut mesh = indexed_surface(positions, indices);
+    let inverse = bind.to_matrix().inverse();
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for point in positions {
+            *point = inverse
+                .transform_point3(Vec3::from_array(*point))
+                .to_array();
+        }
+    }
+    let normal_transform = bind.to_matrix().transpose();
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+    {
+        for normal in normals {
+            *normal = normal_transform
+                .transform_vector3(Vec3::from_array(*normal))
+                .normalize_or_zero()
+                .to_array();
+        }
+    }
+    let indices: Vec<u32> = mesh
+        .indices()
+        .unwrap()
+        .iter()
+        .collect::<Vec<_>>()
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter(|triangle| {
+            let first_ring = triangle.iter().min().unwrap() / (segments + 1);
+            (first_ring >= 20) == distal
+        })
+        .flatten()
+        .map(|index| *index as u32)
+        .collect();
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
 pub fn eye() -> Mesh {
     let segments = 32;
     let rows = 8;
@@ -207,6 +350,27 @@ fn scalp_point(index: usize, height: f32, angle: f32, clearance: f32) -> Vec3 {
     )
 }
 
+fn hair_shell_point(index: usize, height: f32, angle: f32, clearance: f32) -> Vec3 {
+    if index != 0 {
+        return scalp_point(index, height, angle, clearance);
+    }
+    let top = super::sculpt::head(index).heights().1;
+    let upward = ((height - top + 0.11) / 0.11).clamp(0.0, 1.0);
+    let upward = upward * upward * (3.0 - 2.0 * upward);
+    let normal = Vec3::new(
+        angle.sin() * (1.0 - upward),
+        upward,
+        angle.cos() * (1.0 - upward),
+    )
+    .normalize();
+    let front = ((angle.cos() + 0.05) / 0.15).clamp(0.0, 1.0);
+    let front = front * front * (3.0 - 2.0 * front);
+    let cover = (-((height - 0.30) / 0.04).powi(2)).exp() * angle.sin().abs().powi(8) * front;
+    scalp_point(index, height, angle, 0.0)
+        + normal * (0.026 + clearance)
+        + Vec3::new(angle.sin().signum() * 0.008 * cover, 0.0, 0.030 * cover)
+}
+
 fn hairline_height(index: usize, angle: f32) -> f32 {
     let front = angle.cos().max(0.0);
     let transition = ((front - 0.10) / 0.75).clamp(0.0, 1.0);
@@ -228,14 +392,41 @@ pub fn hair_cap(index: usize) -> Mesh {
     for ring in 0..=rings {
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
-            let height = hairline_height(index, angle);
+            let height = hairline_height(index, angle) + if index == 0 { 0.012 } else { 0.0 };
             let progress = ring as f32 / rings as f32;
             let height = top + 0.006 + (height - top - 0.006) * (progress * PI * 0.5).sin();
-            let point = scalp_point(index, height, angle, 0.006);
+            let point = hair_shell_point(index, height, angle, 0.006);
             positions.push(point.to_array());
             if ring < rings && segment < segments {
                 connect_ring(&mut indices, ring, segment, segments);
             }
+        }
+    }
+    if index == 0 {
+        for rim in 1..=6 {
+            let rounding = rim as f32 / 6.0 * PI * 0.5;
+            for segment in 0..=segments {
+                let angle = segment as f32 / segments as f32 * PI * 2.0;
+                let height = hairline_height(index, angle) + 0.012 * (1.0 - rounding.sin());
+                let skin = scalp_point(index, height, angle, 0.0);
+                let shell = hair_shell_point(index, height, angle, 0.006);
+                let point = skin
+                    + (shell - skin) * rounding.cos()
+                    + (scalp_point(index, height, angle, 0.001) - skin) * (1.0 - rounding.cos());
+                positions.push(point.to_array());
+                if segment < segments {
+                    connect_ring(&mut indices, rings + rim - 1, segment, segments);
+                }
+            }
+        }
+        let center = positions.len() as u32;
+        let height = positions[..segments + 1]
+            .iter()
+            .map(|point| point[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        positions.push([0.0, height, 0.0]);
+        for segment in 0..segments {
+            indices.extend_from_slice(&[center, segment as u32 + 1, segment as u32]);
         }
     }
     for triangle in indices.as_chunks_mut::<3>().0 {
@@ -294,7 +485,7 @@ pub fn back_hair(index: usize) -> Mesh {
         let height = 0.40 + (bottom - 0.40) * progress;
         for segment in 0..=segments {
             let angle = PI * 0.5 + segment as f32 / segments as f32 * PI;
-            positions.push(scalp_point(index, height, angle, 0.007).to_array());
+            positions.push(hair_shell_point(index, height, angle, 0.007).to_array());
             if ring < rings && segment < segments {
                 connect_ring(&mut indices, ring, segment, segments);
             }
@@ -318,7 +509,7 @@ pub fn ponytail() -> Mesh {
         let depth = 0.025 * (1.0 - progress) + 0.075 * fullness + 0.002;
         let horizontal = 0.11 * (progress * PI * 0.85).sin();
         let height = 0.33 - progress * Portrait::for_host(0).hair_length;
-        let back = -0.17 - 0.16 * (progress * PI * 0.8).sin();
+        let back = -contour_sample(0, 0.33).y - 0.026 + 0.022 - 0.16 * (progress * PI * 0.8).sin();
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
             let wave = 1.0 + 0.035 * (angle * 9.0 + progress * 5.0).cos() * fullness;
@@ -350,7 +541,7 @@ pub fn crown_strand(index: usize, side: f32, strand: usize) -> Mesh {
         for edge in [-1.0, 1.0] {
             let angle = side * (0.20 + progress * 1.10) + edge * 0.012;
             let normal = Vec3::new(angle.sin(), 0.0, angle.cos());
-            let point = scalp_point(index, height, angle, 0.008);
+            let point = hair_shell_point(index, height, angle, 0.008);
             positions.push(point.to_array());
             normals.push(normal.to_array());
         }
@@ -525,6 +716,136 @@ mod tests {
     use super::*;
 
     #[test]
+    fn finger_phalanges_bend_at_both_internal_joints_without_tilting_the_root() {
+        let mesh = finger(false);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("finger positions")
+        };
+        let centers: Vec<_> = positions
+            .as_chunks::<21>()
+            .0
+            .iter()
+            .map(|ring| {
+                let center = (Vec3::from_array(ring[0]) + Vec3::from_array(ring[10])) * 0.5;
+                Vec3::new(center.x, center.y / FINGER_ASPECT, center.z)
+            })
+            .collect();
+        let proximal = (centers[16] - centers[12]).normalize();
+        let middle = (centers[30] - centers[26]).normalize();
+        let distal = (centers[44] - centers[40]).normalize();
+        assert!(proximal.angle_between(Vec3::Z) < 0.01);
+        assert!((proximal.angle_between(middle) - 28.0_f32.to_radians()).abs() < 0.01);
+        assert!((middle.angle_between(distal) - 18.0_f32.to_radians()).abs() < 0.01);
+        assert!(centers[48].y < -0.5);
+        for ring in 10..40 {
+            let before = (centers[ring] - centers[ring - 1]).normalize();
+            let after = (centers[ring + 1] - centers[ring]).normalize();
+            assert!(before.angle_between(after) < 0.20);
+        }
+    }
+
+    #[test]
+    fn fingers_have_rounded_ends_and_unpinched_joint_cross_sections() {
+        for vertical in [false, true] {
+            let mesh = finger(vertical);
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing finger positions")
+            };
+            let Some(VertexAttributeValues::Float32x3(normals)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("missing finger normals")
+            };
+            for (ring, points) in positions.as_chunks::<21>().0.iter().enumerate() {
+                let (center, angle) = if ring <= 8 {
+                    (-0.8, -PI * 0.5 + ring as f32 / 8.0 * PI * 0.5)
+                } else if ring <= 40 {
+                    (-0.8 + (ring - 8) as f32 / 32.0 * 1.6, 0.0)
+                } else {
+                    (0.8, (ring - 40) as f32 / 8.0 * PI * 0.5)
+                };
+                let (center, normal) = finger_frame(center + 0.2 * angle.sin(), vertical);
+                for (segment, point) in points.iter().enumerate() {
+                    let point = Vec3::from_array(*point);
+                    let point = if vertical {
+                        Vec3::new(point.x, -point.z, point.y)
+                    } else {
+                        point
+                    };
+                    let offset = point - center;
+                    let radial = Vec2::new(offset.x, offset.y / normal.y);
+                    assert!((radial.length() - angle.cos().max(0.0)).abs() < 0.00001);
+                    if (8..=40).contains(&ring) {
+                        assert!((radial.length() - 1.0).abs() < 0.00001);
+                    }
+                    assert!(point.is_finite() && point.abs().max_element() < 6.0);
+                    let outward = Vec3::from_array(normals[ring * 21 + segment]);
+                    let outward = if vertical {
+                        Vec3::new(outward.x, -outward.z, outward.y)
+                    } else {
+                        outward
+                    };
+                    assert!(outward.dot(offset) >= -0.00001);
+                }
+            }
+            assert!(normals.iter().flatten().all(|normal| normal.is_finite()));
+        }
+    }
+
+    #[test]
+    fn thicker_browser_hair_has_a_closed_rim_meeting_the_scalp() {
+        let mesh = hair_cap(0);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing hair positions")
+        };
+        let triangles: Vec<_> = mesh.indices().unwrap().iter().collect();
+        let shell_vertices = 65 * 65;
+        assert_eq!(positions.len(), shell_vertices + 6 * 65 + 1);
+        for segment in 0..64 {
+            let angle = segment as f32 / 64.0 * PI * 2.0;
+            let outer = 64 * 65 + segment;
+            let inner = shell_vertices + 5 * 65 + segment;
+            let skin = scalp_point(0, hairline_height(0, angle), angle, 0.0);
+            assert!((Vec3::from_array(positions[inner]) - skin).length() < 0.002);
+            let thickness = Vec3::from_array(positions[outer]).distance(scalp_point(
+                0,
+                hairline_height(0, angle) + 0.012,
+                angle,
+                0.0,
+            ));
+            assert!((0.030..0.060).contains(&thickness));
+            for rim in 0..6 {
+                let start = outer + rim * 65;
+                let end = start + 65;
+                assert!(
+                    triangles
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .any(|triangle| { triangle.contains(&start) && triangle.contains(&end) })
+                );
+            }
+            let first =
+                Vec3::from_array(positions[outer + 65]) - Vec3::from_array(positions[outer]);
+            let last = Vec3::from_array(positions[inner]) - Vec3::from_array(positions[inner - 65]);
+            assert!(first.normalize().dot(last.normalize()) < 0.85);
+        }
+        assert!(
+            positions
+                .iter()
+                .any(|point| (0.28..0.32).contains(&point[1])
+                    && point[0] > 0.22
+                    && point[2] > 0.05)
+        );
+    }
+
+    #[test]
     fn browser_hair_has_a_high_hairline_and_voluminous_gathered_tail() {
         let cap = hair_cap(0);
         let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -535,7 +856,7 @@ mod tests {
         let front_hairline = positions[64 * 65];
         assert!(front_hairline[1] > 0.46);
         assert!(positions.iter().any(|point| point[1] > 0.50));
-        assert!(positions.iter().all(|point| point[0].abs() < 0.21));
+        assert!(positions.iter().all(|point| point[0].abs() < 0.24));
         assert!(front_hairline[2] > face_front(0, front_hairline[0], front_hairline[1]));
         let tail = ponytail();
         let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -543,7 +864,7 @@ mod tests {
         else {
             panic!("missing ponytail positions")
         };
-        assert!(positions.iter().all(|point| point[2] < -0.13));
+        assert!(positions.iter().all(|point| point[2] < -0.08));
         let root_front = positions[..33]
             .iter()
             .map(|point| point[2])
@@ -627,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn hair_shells_follow_the_authored_scalp_without_floating_gaps() {
+    fn hair_shells_follow_the_authored_scalp_with_the_intended_thickness() {
         for index in 0..2 {
             for (mesh, segments, start, sweep) in [
                 (hair_cap(index), 64, 0.0, PI * 2.0),
@@ -638,12 +959,28 @@ mod tests {
                 else {
                     panic!("missing hair positions")
                 };
-                for (vertex, &[horizontal, height, depth]) in positions.iter().enumerate() {
+                let shell_vertices = if segments == 64 {
+                    65 * 65
+                } else {
+                    positions.len()
+                };
+                for (vertex, &[horizontal, height, depth]) in
+                    positions.iter().take(shell_vertices).enumerate()
+                {
                     let angle = start + (vertex % (segments + 1)) as f32 / segments as f32 * sweep;
                     let surface = scalp_point(index, height, angle, 0.0);
-                    let gap = Vec2::new(horizontal - surface.x, depth - surface.z).length();
-                    assert!(gap < 0.015, "floating hair: host {index}, gap {gap}");
-                    assert!(height <= super::super::sculpt::head(index).heights().1 + 0.007);
+                    if index == 1 {
+                        let gap = Vec2::new(horizontal - surface.x, depth - surface.z).length();
+                        assert!(gap < 0.015, "floating hair: host {index}, gap {gap}");
+                    } else if height < super::super::sculpt::head(index).heights().1 - 0.12 {
+                        let gap = Vec2::new(horizontal - surface.x, depth - surface.z).length();
+                        assert!((0.031..0.060).contains(&gap));
+                    }
+                    assert!(
+                        height
+                            <= super::super::sculpt::head(index).heights().1
+                                + if index == 0 { 0.040 } else { 0.007 }
+                    );
                 }
             }
         }
@@ -847,7 +1184,8 @@ mod tests {
                 let height = 0.015 + step as f32 * 0.00050;
                 let sample = contour_sample(index, height);
                 assert!(sample.is_finite() && sample.min_element() > 0.0);
-                assert!(sample.max_element() < 0.21);
+                assert!(sample.x < 0.21);
+                assert!(sample.y < 0.33);
                 let depth = face_front(index, 0.0, height);
                 assert!(depth.is_finite() && (0.0..0.25).contains(&depth));
             }

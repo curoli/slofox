@@ -41,6 +41,14 @@ pub fn shoulder(side: f32) -> Vec3 {
     Vec3::new(side * 0.29, SHOULDER_Y, 0.0)
 }
 
+pub fn clavicle_pivot() -> Vec3 {
+    Vec3::new(0.0, 0.72 - NECK_LOWERING, 0.0)
+}
+
+pub fn joint_indices(point: Vec3) -> [u16; 4] {
+    [0, 1, 2, if point.x < 0.0 { 3 } else { 4 }]
+}
+
 pub fn skin_color(index: usize) -> Color {
     if index == 0 {
         Color::srgb_u8(202, 145, 103)
@@ -289,10 +297,14 @@ fn weights(index: usize, point: Vec3) -> [f32; 4] {
     let side = if point.x < 0.0 { -1.0 } else { 1.0 };
     let influence =
         smoothstep((torso_distance(index, point) - arm_distance(point, side) + 0.025) / 0.065);
+    let clavicle = (1.0 - influence)
+        * smoothstep((point.x.abs() - 0.025) / 0.075)
+        * smoothstep((point.y - 0.43) / 0.17)
+        * (1.0 - smoothstep((point.y - 0.70) / 0.05));
     if side < 0.0 {
-        [1.0 - influence, influence, 0.0, 0.0]
+        [1.0 - influence - clavicle, influence, 0.0, clavicle]
     } else {
-        [1.0 - influence, 0.0, influence, 0.0]
+        [1.0 - influence - clavicle, 0.0, influence, clavicle]
     }
 }
 
@@ -435,7 +447,7 @@ impl Surface {
                                 surface.positions.push(point.to_array());
                                 surface.normals.push([0.0; 3]);
                                 surface.weights.push(weights);
-                                surface.joints.push([0, 1, 2, 0]);
+                                surface.joints.push(joint_indices(point));
                                 surface.colors.push(color(index, point, weights));
                                 vertex
                             });
@@ -517,6 +529,29 @@ impl Surface {
             .expect("body mesh must have valid joint indices and weights");
         mesh
     }
+}
+
+pub fn skin_garment(index: usize, mesh: &mut Mesh) {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        unreachable!()
+    };
+    let indices: Vec<_> = positions
+        .iter()
+        .map(|point| joint_indices(Vec3::from_array(*point)))
+        .collect();
+    let weights: Vec<_> = positions
+        .iter()
+        .map(|point| weights(index, Vec3::from_array(*point)))
+        .collect();
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        VertexAttributeValues::Uint16x4(indices),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    mesh.generate_skinned_mesh_bounds()
+        .expect("garment skin bounds");
 }
 
 pub fn surface(index: usize) -> &'static Surface {
@@ -1121,6 +1156,56 @@ mod tests {
     }
 
     #[test]
+    fn clavicle_lift_moves_the_whole_shoulder_edge_without_a_ridge() {
+        for index in 0..2 {
+            for side in [-1.0, 1.0] {
+                let rotation = Quat::from_rotation_z(side * 0.18);
+                let pivot = clavicle_pivot();
+                let mut previous_height = f32::INFINITY;
+                let mut previous_lift = 0.0;
+                for step in 0..=100 {
+                    let horizontal = side * (0.12 + step as f32 * 0.0018);
+                    let mut below = 0.50;
+                    let mut above = 0.80;
+                    for _ in 0..24 {
+                        let middle = (below + above) * 0.5;
+                        if distance(index, Vec3::new(horizontal, middle, 0.0)) < 0.0 {
+                            below = middle;
+                        } else {
+                            above = middle;
+                        }
+                    }
+                    let point = Vec3::new(horizontal, above, 0.0);
+                    let weights = weights(index, point);
+                    let moved = point * weights[0]
+                        + (pivot + rotation * (point - pivot)) * (1.0 - weights[0]);
+                    let lift = moved.y - point.y;
+                    assert!(
+                        lift > 0.001,
+                        "inner shoulder did not lift: host {index}, x {horizontal}"
+                    );
+                    assert!(lift >= previous_lift - 0.0001);
+                    assert!(
+                        moved.y <= previous_height + 0.0001,
+                        "shoulder ridge: host {index}, x {horizontal}"
+                    );
+                    previous_height = moved.y;
+                    previous_lift = lift;
+                }
+                assert!(previous_lift > 0.045);
+                assert_eq!(
+                    weights(index, Vec3::new(0.0, 0.76, 0.0)),
+                    [1.0, 0.0, 0.0, 0.0]
+                );
+                assert_eq!(
+                    weights(index, Vec3::new(0.0, 0.32, 0.15)),
+                    [1.0, 0.0, 0.0, 0.0]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn skin_weights_preserve_the_bind_pose_and_blend_only_at_shoulders() {
         for index in 0..2 {
             let surface = surface(index);
@@ -1129,8 +1214,7 @@ mod tests {
                 let point = Vec3::from_array(*point);
                 assert!(weights.iter().all(|weight| (0.0..=1.0).contains(weight)));
                 assert!((weights.iter().sum::<f32>() - 1.0).abs() < 0.000001);
-                assert_eq!(weights[3], 0.0);
-                let mut restored = point * weights[0];
+                let mut restored = point * (weights[0] + weights[3]);
                 for (joint, side) in [(1, -1.0), (2, 1.0)] {
                     let inverse_bindpose = Mat4::from_translation(-shoulder(side));
                     let joint_pose = Mat4::from_translation(shoulder(side));
@@ -1138,7 +1222,7 @@ mod tests {
                         (joint_pose * inverse_bindpose).transform_point3(point) * weights[joint];
                 }
                 assert!(restored.distance(point) < 0.000001);
-                if point.y > 0.67 {
+                if point.y > 0.75 {
                     assert_eq!(weights[0], 1.0);
                 }
                 if point.z > 0.35 {
