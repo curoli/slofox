@@ -15,7 +15,7 @@ pub struct GestureState {
 impl GestureState {
     pub fn update(&mut self, delta: f32, jaw: f32) -> f32 {
         let target = ((jaw - 0.025) / 0.10).clamp(0.0, 1.0);
-        let response = if target > self.engagement { 1.2 } else { 2.0 };
+        let response = if target > self.engagement { 0.9 } else { 1.5 };
         self.engagement += (target - self.engagement) * (1.0 - (-delta.max(0.0) / response).exp());
         self.engagement
     }
@@ -54,7 +54,7 @@ fn key_pose(elapsed: f32, host: usize, side: f32, key: i32, engagement: f32) -> 
     let phase = elapsed * 1.05 + host as f32 * 1.7;
     let circle = phase + if mode == 3 { 0.0 } else { side * 0.45 };
     let rest_yaw = (variation(key, host, side, 17) - 0.5) * 0.10;
-    let rest_pitch = 0.09 + 0.008 * (elapsed * 0.38 + side * 1.8).sin();
+    let rest_pitch = 0.08 + 0.008 * (elapsed * 0.38 + side * 1.8).sin();
     let rest_roll = -side * 1.2 * smoothstep((variation(key, host, side, 43) - 0.4) / 0.3);
     let palm_up = variation(key, host, 1.0, 107) > 0.45;
     let wrist_roll = if palm_up {
@@ -79,14 +79,14 @@ fn key_pose(elapsed: f32, host: usize, side: f32, key: i32, engagement: f32) -> 
             side * (0.02 + active * (0.055 + 0.025 * circle.cos())),
         ),
         wrist_rotation: rest_wrist.slerp(active_wrist, active),
-        curl: 0.20 + 0.30 * (rest_roll.abs() / 1.2) * (1.0 - active) + active * 0.08,
+        curl: 0.15 + 0.18 * (rest_roll.abs() / 1.2) * (1.0 - active) + active * 0.08,
     }
 }
 
 pub fn sample(elapsed: f32, host: usize, side: f32, engagement: f32) -> HandGesture {
     let clock = elapsed.max(0.0) + host as f32 * 3.7;
     let key = (clock / 10.0).floor() as i32 + 1;
-    let blend = smoothstep(clock.rem_euclid(10.0) / 3.0);
+    let blend = smoothstep(clock.rem_euclid(10.0) / 2.0);
     let previous = key_pose(elapsed, host, side, key - 1, engagement);
     let next = key_pose(elapsed, host, side, key, engagement);
     HandGesture {

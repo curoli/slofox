@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with calm, varied hand gestures and asymmetric resting hands](docs/studio-preview-2026-10-21-calm-hand-gestures.png)
+![Studio with flatter palms and longer, smoothly rounded fingers](docs/studio-preview-2026-10-21-natural-hands.png)
 
 ## Prototype
 
@@ -67,9 +67,11 @@ OBS records the app window and the two audio channels.
   and approximately symmetric two-handed gestures. Palms can face the speaker,
   upward or toward each other; relaxed fingers curl slightly, and resting hands
   can lie flat or rest on their side with the thumb up.
-  Three-second eased transitions and a smoothed speech envelope keep the hands
+  Two-second eased transitions and a smoothed speech envelope keep the hands
   from snapping or pumping with individual syllables. During silence, small
   occasional shifts vary their tabletop positions instead of mirroring both arms.
+  Flatter palms and approximately palm-length fingers with continuous rounded
+  shafts avoid pinched joints; the middle fingers are slightly longer than the others.
   Both hosts occasionally glance toward each other, with stronger, longer turns
   while listening to the other voice. Smooth transitions, short speech-gap
   tolerance and periodic forward-facing breaks avoid abrupt turns or staring.
@@ -129,7 +131,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with dominant-hand gestures and relaxed wrist poses](docs/portrait-preview-2026-10-21-calm-hand-gestures.png)
+![Portrait view with natural hand proportions and faster eased gestures](docs/portrait-preview-2026-10-21-natural-hands.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 

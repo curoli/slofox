@@ -140,6 +140,38 @@ pub fn face(index: usize) -> Mesh {
     mesh
 }
 
+pub fn finger(vertical: bool) -> Mesh {
+    let segments = 20;
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for ring in 0..18 {
+        let (center, angle) = if ring <= 8 {
+            (-0.8, -PI * 0.5 + ring as f32 / 8.0 * PI * 0.5)
+        } else {
+            (0.8, (ring - 9) as f32 / 8.0 * PI * 0.5)
+        };
+        let radius = angle.cos().max(0.0);
+        let length = center + 0.2 * angle.sin();
+        for segment in 0..=segments {
+            let around = segment as f32 / segments as f32 * PI * 2.0;
+            let horizontal = radius * around.sin();
+            let depth = radius * around.cos();
+            positions.push(if vertical {
+                [horizontal, length, -depth]
+            } else {
+                [horizontal, depth, length]
+            });
+            if ring < 17 && segment < segments {
+                connect_ring(&mut indices, ring, segment, segments);
+            }
+        }
+    }
+    for triangle in indices.as_chunks_mut::<3>().0 {
+        triangle.swap(1, 2);
+    }
+    indexed_surface(positions, indices)
+}
+
 pub fn eye() -> Mesh {
     let segments = 32;
     let rows = 8;
@@ -571,6 +603,48 @@ mod tests {
     use bevy::mesh::VertexAttributeValues;
 
     use super::*;
+
+    #[test]
+    fn fingers_have_rounded_ends_and_an_unpinched_shaft() {
+        for vertical in [false, true] {
+            let mesh = finger(vertical);
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing finger positions")
+            };
+            let Some(VertexAttributeValues::Float32x3(normals)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("missing finger normals")
+            };
+            let axis = if vertical { 1 } else { 2 };
+            for (ring, points) in positions.as_chunks::<21>().0.iter().enumerate() {
+                let expected_radius = if ring <= 8 {
+                    (-PI * 0.5 + ring as f32 / 8.0 * PI * 0.5).cos().max(0.0)
+                } else {
+                    ((ring - 9) as f32 / 8.0 * PI * 0.5).cos().max(0.0)
+                };
+                for point in points {
+                    let radial = if vertical {
+                        Vec2::new(point[0], point[2])
+                    } else {
+                        Vec2::new(point[0], point[1])
+                    };
+                    assert!((radial.length() - expected_radius).abs() < 0.00001);
+                    if (8..=9).contains(&ring) {
+                        assert!((radial.length() - 1.0).abs() < 0.00001);
+                    }
+                    assert!(point.iter().all(|coordinate| coordinate.is_finite() && coordinate.abs() <= 1.00001));
+                    assert!(point[axis].abs() <= 1.0);
+                }
+            }
+            assert!(normals.iter().flatten().all(|normal| normal.is_finite()));
+            for (point, normal) in positions.iter().zip(normals) {
+                assert!(Vec3::from_array(*point).dot(Vec3::from_array(*normal)) >= -0.00001);
+            }
+        }
+    }
 
     #[test]
     fn thicker_browser_hair_has_a_closed_rim_meeting_the_scalp() {

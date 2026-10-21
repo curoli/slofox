@@ -113,9 +113,10 @@ impl ArmBounds {
         let parent = host.to_matrix() * arm.to_matrix();
         parts
             .iter()
-            .map(|part| {
+            .enumerate()
+            .map(|(index, part)| {
                 let matrix = parent * part.to_matrix();
-                let extent = Vec3::new(matrix.x_axis.y, matrix.y_axis.y, matrix.z_axis.y).length();
+                let extent = hand_extent(matrix, index, Vec3::Y);
                 matrix.w_axis.y - extent
             })
             .chain(
@@ -185,13 +186,20 @@ fn hand_parts(side: f32) -> [Transform; 7] {
     let wrist = body::wrist(side);
     std::array::from_fn(|index| {
         if index == 0 {
-            Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.06))
-                .with_scale(Vec3::new(0.052, 0.031, 0.088))
+            Transform::from_translation(wrist + Vec3::new(0.0, 0.0, 0.045))
+                .with_scale(Vec3::new(0.047, 0.020, 0.060))
         } else if index <= 4 {
+            let finger = if side > 0.0 { index - 1 } else { 4 - index };
+            let length = [0.112, 0.120, 0.116, 0.100][finger];
             Transform::from_translation(
-                wrist + Vec3::new(((index - 1) as f32 - 1.5) * 0.021, -0.002, 0.126),
+                wrist
+                    + Vec3::new(
+                        ((index - 1) as f32 - 1.5) * 0.021,
+                        -0.002,
+                        0.085 + length * 0.5,
+                    ),
             )
-            .with_scale(Vec3::new(0.011, 0.018, 0.033))
+            .with_scale(Vec3::new(0.0095, 0.011, length * 0.5))
         } else {
             let base = wrist + Vec3::new(-side * 0.035, 0.002, 0.043);
             let joint = wrist + Vec3::new(-side * 0.065, 0.001, 0.080);
@@ -205,12 +213,28 @@ fn hand_parts(side: f32) -> [Transform; 7] {
     })
 }
 
+fn hand_extent(matrix: Mat4, index: usize, axis: Vec3) -> f32 {
+    let mut extent = Vec3::new(
+        matrix.x_axis.truncate().dot(axis),
+        matrix.y_axis.truncate().dot(axis),
+        matrix.z_axis.truncate().dot(axis),
+    );
+    if index == 0 {
+        extent.length()
+    } else {
+        let longitudinal = if index <= 4 { 2 } else { 1 };
+        let shaft = 0.8 * extent[longitudinal].abs();
+        extent[longitudinal] *= 0.2;
+        shaft + extent.length()
+    }
+}
+
 pub fn posed_hand_parts(side: f32, gesture: gestures::HandGesture) -> [Transform; 7] {
     let wrist = body::wrist(side);
     let mut parts = hand_parts(side);
     for (index, part) in parts.iter_mut().enumerate() {
         if (1..=4).contains(&index) {
-            let pivot = wrist + Vec3::new(part.translation.x - wrist.x, -0.002, 0.102);
+            let pivot = wrist + Vec3::new(part.translation.x - wrist.x, -0.002, 0.085);
             let rotation = Quat::from_rotation_x(gesture.curl * (0.9 + index as f32 * 0.06));
             part.translation = pivot + rotation * (part.translation - pivot);
             part.rotation = rotation * part.rotation;
@@ -639,6 +663,8 @@ fn host(
 
     let mut joints = vec![root];
     let mut inverse_bindposes = vec![Mat4::IDENTITY];
+    let finger_shape = meshes.add(portrait::finger(false));
+    let thumb_shape = meshes.add(portrait::finger(true));
     for side in [-1.0, 1.0] {
         let arm_rest = Transform::from_translation(body::shoulder(side));
         let arm = commands.spawn((arm_rest, Visibility::default())).id();
@@ -648,7 +674,13 @@ fn host(
             let hand = object(
                 commands,
                 Some(arm),
-                &geometry.sphere,
+                if part == 0 {
+                    &geometry.sphere
+                } else if part <= 4 {
+                    &finger_shape
+                } else {
+                    &thumb_shape
+                },
                 &palette.skin,
                 transform,
             );
@@ -993,6 +1025,49 @@ mod tests {
     }
 
     #[test]
+    fn hands_have_flatter_palms_and_approximately_palm_length_fingers() {
+        for side in [-1.0, 1.0] {
+            let parts = hand_parts(side);
+            let palm = parts[0];
+            assert!(palm.scale.y / palm.scale.x < 0.45);
+            for finger in &parts[1..=4] {
+                assert!((0.8..=1.05).contains(&(finger.scale.z / palm.scale.z)));
+            }
+        }
+    }
+
+    #[test]
+    fn capsule_hand_bounds_enclose_actual_finger_vertices_when_rotated() {
+        use bevy::mesh::VertexAttributeValues;
+
+        let finger = portrait::finger(false);
+        let thumb = portrait::finger(true);
+        for side in [-1.0, 1.0] {
+            for frame in 0..80 {
+                let gesture = gestures::sample(frame as f32 * 0.7, 0, side, 0.8);
+                let parts = posed_hand_parts(side, gesture);
+                for (index, part) in parts.iter().enumerate().skip(1) {
+                    let mesh = if index <= 4 { &finger } else { &thumb };
+                    let Some(VertexAttributeValues::Float32x3(positions)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("missing finger positions")
+                    };
+                    let matrix = Mat4::from_quat(gesture.arm_rotation) * part.to_matrix();
+                    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                        let center = matrix.w_axis.truncate().dot(axis);
+                        let extent = hand_extent(matrix, index, axis);
+                        for position in positions {
+                            let point = matrix.transform_point3(Vec3::from_array(*position));
+                            assert!((point.dot(axis) - center).abs() <= extent + 0.000001);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn hands_have_connected_mirrored_thumbs_outside_the_palm() {
         for side in [-1.0, 1.0] {
             let parts = hand_parts(side);
@@ -1262,13 +1337,13 @@ mod tests {
                             &mut arm,
                             &posed_hand_parts(side, gestures::sample(elapsed, index, side, speech)),
                         );
-                        for hand in
+                        for (part, hand) in
                             posed_hand_parts(side, gestures::sample(elapsed, index, side, speech))
+                                .into_iter()
+                                .enumerate()
                         {
                             let matrix = host.to_matrix() * arm.to_matrix() * hand.to_matrix();
-                            let depth_extent =
-                                Vec3::new(matrix.x_axis.z, matrix.y_axis.z, matrix.z_axis.z)
-                                    .length();
+                            let depth_extent = hand_extent(matrix, part, Vec3::Z);
                             assert!(
                                 matrix.w_axis.z - depth_extent >= desk::BACK_EDGE_Z + ARM_CLEARANCE,
                                 "host {index}: hand no longer reaches desk: time {elapsed}, speech {speech}, side {side}"
@@ -1309,11 +1384,10 @@ mod tests {
                         let parent = host.to_matrix() * arm.to_matrix();
                         let lowest_hand = parts
                             .iter()
-                            .map(|part| {
+                            .enumerate()
+                            .map(|(index, part)| {
                                 let matrix = parent * part.to_matrix();
-                                matrix.w_axis.y
-                                    - Vec3::new(matrix.x_axis.y, matrix.y_axis.y, matrix.z_axis.y)
-                                        .length()
+                                matrix.w_axis.y - hand_extent(matrix, index, Vec3::Y)
                             })
                             .fold(f32::INFINITY, f32::min);
                         let idle = gestures::sample(elapsed, index, side, 0.0);
