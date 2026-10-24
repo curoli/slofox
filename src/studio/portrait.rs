@@ -643,6 +643,41 @@ pub fn lip(index: usize, upper: bool) -> Mesh {
     mesh
 }
 
+fn garment_neckline(index: usize, angle: f32) -> f32 {
+    use super::body;
+
+    if index != 0 {
+        return 0.61 - 0.09 * angle.cos().max(0.0).powi(12);
+    }
+    let original = body::CHEST_CENTER_Y + 0.025 * angle.sin().abs();
+    if angle.cos() <= 0.0 {
+        return original;
+    }
+    let upper_edge = |height| {
+        let horizontal = (body::profile(0, height).x + 0.004) * angle.sin();
+        let radial = (horizontal.abs() - body::CHEST_CENTER_X) / body::CHEST_RADIUS_X;
+        body::CHEST_CENTER_Y
+            + body::CHEST_RADIUS_Y
+                * (body::CHEST_BLEND_RADIUS.powi(2) - radial.powi(2))
+                    .max(0.0)
+                    .sqrt()
+    };
+    if upper_edge(original) <= original {
+        return original;
+    }
+    let mut lower = original;
+    let mut upper = body::CHEST_CENTER_Y + body::CHEST_RADIUS_Y * body::CHEST_BLEND_RADIUS;
+    for _ in 0..24 {
+        let middle = (lower + upper) * 0.5;
+        if middle < upper_edge(middle) {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
+    }
+    upper
+}
+
 pub fn garment(index: usize) -> Mesh {
     let rings = 48;
     let segments = 96;
@@ -653,12 +688,7 @@ pub fn garment(index: usize) -> Mesh {
         let progress = ring as f32 / rings as f32;
         for segment in 0..=segments {
             let angle = segment as f32 / segments as f32 * PI * 2.0;
-            let front = angle.cos().max(0.0);
-            let neckline = if index == 0 {
-                super::body::CHEST_CENTER_Y + 0.025 * angle.sin().abs()
-            } else {
-                0.61 - 0.09 * front.powi(12)
-            };
+            let neckline = garment_neckline(index, angle);
             let height = -0.10 + progress * (neckline + 0.10);
             let profile = super::body::profile(index, height);
             let width = profile.x + 0.004;
@@ -714,6 +744,59 @@ mod tests {
     use bevy::mesh::VertexAttributeValues;
 
     use super::*;
+
+    #[test]
+    fn raised_neckline_tracks_only_the_upper_chest_contours() {
+        use super::super::body;
+
+        let mesh = garment(0);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("garment positions")
+        };
+        let mut raised = 0;
+        let mut unchanged = 0;
+        for segment in 0..=96 {
+            let angle = segment as f32 / 96.0 * PI * 2.0;
+            let original = body::CHEST_CENTER_Y + 0.025 * angle.sin().abs();
+            let edge = Vec3::from_array(positions[48 * 97 + segment]);
+            assert!(edge.y >= original - 0.000001);
+            if edge.y > original + 0.000001 {
+                assert!(angle.cos() > 0.0);
+                let radial = ((edge.x.abs() - body::CHEST_CENTER_X) / body::CHEST_RADIUS_X).powi(2)
+                    + ((edge.y - body::CHEST_CENTER_Y) / body::CHEST_RADIUS_Y).powi(2);
+                assert!((radial - body::CHEST_BLEND_RADIUS.powi(2)).abs() < 0.00001);
+                raised += 1;
+            } else {
+                for ring in 0..=48 {
+                    let height = -0.10 + ring as f32 / 48.0 * (original + 0.10);
+                    let profile = body::profile(0, height);
+                    let horizontal = (profile.x + 0.004) * angle.sin();
+                    let depth = (profile.y + 0.004) * angle.cos();
+                    let expected = Vec3::new(
+                        horizontal,
+                        height,
+                        depth + body::chest_offset(0, horizontal, height, depth),
+                    );
+                    assert!(
+                        Vec3::from_array(positions[ring * 97 + segment]).distance(expected)
+                            < 0.000001
+                    );
+                }
+                unchanged += 1;
+            }
+            assert!((edge.y - positions[48 * 97 + (96 - segment)][1]).abs() < 0.000001);
+            if angle.cos() <= 0.0 {
+                assert!((edge.y - original).abs() < 0.000001);
+            }
+            assert_eq!(
+                garment_neckline(1, angle),
+                0.61 - 0.09 * angle.cos().max(0.0).powi(12)
+            );
+        }
+        assert!(raised > 10 && unchanged > 48);
+    }
 
     #[test]
     fn finger_phalanges_bend_at_both_internal_joints_without_tilting_the_root() {

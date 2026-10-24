@@ -4,7 +4,7 @@ A Rust/Bevy app that renders two cartoon talk show hosts in a 3D studio.
 Host 1 reacts to ChatGPT's browser audio; host 2 reacts to your microphone.
 OBS records the app window and the two audio channels.
 
-![Studio with three-part fingers bent at their middle and end joints](docs/studio-preview-2026-10-21-bent-finger-joints.png)
+![Studio with her top following the upper bust contours](docs/studio-preview-2026-10-24-upper-bust-neckline.png)
 
 ## Prototype
 
@@ -59,8 +59,9 @@ OBS records the app window and the two audio channels.
   Host 1's chest has
   two rounded, hemisphere-like contours with a central valley, shared by skin
   and top. The shoulder-to-chest gap equals the height of the rounded chest
-  contours (excluding the soft blending rim); the top covers approximately
-  the lower half.
+  contours (excluding the soft blending rim). Her top follows the upper edge
+  of both chest contours, including the soft blending rim; the rest of its
+  side and back neckline stays unchanged.
 - Independent audio-driven mouth opening and vowel-like lip shapes, with a
   noise threshold and smooth transitions. Local spectral/formant analysis approximates
   open A, wide E/I and rounded O/U shapes; it is not phoneme recognition.
@@ -138,7 +139,7 @@ For a close comparison without audio capture:
 cargo run --locked -- --demo --clean --portrait-preview
 ```
 
-![Portrait view with bent finger joints and smoothly joined thumbs](docs/portrait-preview-2026-10-21-bent-finger-joints.png)
+![Portrait view with raised bust coverage and unchanged side and back neckline](docs/portrait-preview-2026-10-24-upper-bust-neckline.png)
 
 Set the wall subtitle and calendar date with startup options, for example:
 
