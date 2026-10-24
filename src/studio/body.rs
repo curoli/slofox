@@ -21,7 +21,10 @@ const INNER_SHOULDER_RADIUS: f32 = 0.140;
 pub const NECK_LOWERING: f32 = 0.025;
 const NECK_TOP_Y: f32 = 0.83 - NECK_LOWERING;
 const CHEST_REFERENCE_Y: f32 = 0.6183;
-const CHEST_RADIUS_Y: f32 = 0.100;
+pub const CHEST_RADIUS_Y: f32 = 0.100;
+pub const CHEST_RADIUS_X: f32 = 0.095;
+pub const CHEST_CENTER_X: f32 = 0.125;
+pub const CHEST_BLEND_RADIUS: f32 = 1.35;
 pub const CHEST_CENTER_Y: f32 = CHEST_REFERENCE_Y - 3.0 * CHEST_RADIUS_Y;
 pub const NAVEL_Y: f32 = 0.10;
 
@@ -129,16 +132,19 @@ pub fn front(index: usize, horizontal: f32, height: f32) -> f32 {
 }
 
 pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f32 {
-    if index != 0 || depth <= 0.0 || (height - CHEST_CENTER_Y).abs() >= CHEST_RADIUS_Y * 1.35 {
+    if index != 0
+        || depth <= 0.0
+        || (height - CHEST_CENTER_Y).abs() >= CHEST_RADIUS_Y * CHEST_BLEND_RADIUS
+    {
         return 0.0;
     }
     let profile = profile(index, height);
     let baseline = profile.y * (1.0 - (horizontal / profile.x).powi(2)).max(0.0).sqrt();
     let cap = |center: f32| {
-        let radial_squared = ((horizontal - center) / 0.095).powi(2)
+        let radial_squared = ((horizontal - center) / CHEST_RADIUS_X).powi(2)
             + ((height - CHEST_CENTER_Y) / CHEST_RADIUS_Y).powi(2);
         let radius = radial_squared.sqrt();
-        if radius >= 1.35 {
+        if radius >= CHEST_BLEND_RADIUS {
             return 0.0;
         }
         let reference = profile.y * (1.0 - (center / profile.x).powi(2)).max(0.0).sqrt();
@@ -154,7 +160,7 @@ pub fn chest_offset(index: usize, horizontal: f32, height: f32, depth: f32) -> f
         let rim_blend = 1.0 - smoothstep(transition);
         (reference - baseline) * rim_blend + 0.095 * dome
     };
-    (cap(-0.125) + cap(0.125)) * smoothstep(depth / 0.06)
+    (cap(-CHEST_CENTER_X) + cap(CHEST_CENTER_X)) * smoothstep(depth / 0.06)
 }
 
 fn torso_distance(index: usize, point: Vec3) -> f32 {
@@ -566,7 +572,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chest_sits_below_shoulders_with_half_coverage() {
+    fn chest_sits_below_shoulders_with_full_upper_contour_coverage() {
         let chest_top = CHEST_CENTER_Y + CHEST_RADIUS_Y;
         let chest_bottom = CHEST_CENTER_Y - CHEST_RADIUS_Y;
         let chest_height = chest_top - chest_bottom;
@@ -593,8 +599,11 @@ mod tests {
                 .filter(|point| (point[0] - side * 0.125).abs() < 0.015 && point[2] > 0.0)
                 .map(|point| point[1])
                 .fold(f32::NEG_INFINITY, f32::max);
-            let coverage = (neckline - chest_bottom) / chest_height;
-            assert!((0.45..0.60).contains(&coverage), "coverage: {coverage}");
+            let chest_edge = CHEST_CENTER_Y + CHEST_RADIUS_Y * CHEST_BLEND_RADIUS;
+            assert!(
+                (neckline - chest_edge).abs() < 0.002,
+                "neckline: {neckline}"
+            );
         }
     }
 
